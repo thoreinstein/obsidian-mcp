@@ -46,7 +46,7 @@ Vault path resolution order:
 
 1. `obsidian_set_vault` tool / `vault_path` argument (persisted)
 2. `OBSIDIAN_VAULT_PATH` env var
-3. Config file (see below), with fallback to legacy `~/.gemini-obsidian.config.json` / `~/.obsidian-rag.config.json`
+3. Config file (see below)
 
 ## Data paths
 

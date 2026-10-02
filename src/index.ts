@@ -41,11 +41,6 @@ import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, li
 let VAULT_PATH: string | null = process.env.OBSIDIAN_VAULT_PATH || null;
 const indexer = new VaultIndexer();
 const CONFIG_PATH = process.env.OBSIDIAN_MCP_CONFIG ?? path.join(os.homedir(), '.config', 'obsidian-mcp', 'config.json');
-// Legacy single-file configs from the gemini/claude plugin days.
-const LEGACY_CONFIG_PATHS = [
-  path.join(os.homedir(), '.gemini-obsidian.config.json'),
-  path.join(os.homedir(), '.obsidian-rag.config.json'),
-];
 
 async function saveConfig(vaultPath: string) {
     try {
@@ -57,15 +52,7 @@ async function loadConfig(): Promise<string | null> {
     try {
         const data = await fs.readFile(CONFIG_PATH, 'utf-8');
         return JSON.parse(data).vault_path;
-    } catch {
-        for (const legacy of LEGACY_CONFIG_PATHS) {
-            try {
-                const data = await fs.readFile(legacy, 'utf-8');
-                return JSON.parse(data).vault_path;
-            } catch { /* next */ }
-        }
-        return null;
-    }
+    } catch { return null; }
 }
 
 /**
