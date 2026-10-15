@@ -40,6 +40,17 @@ import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, li
 
 let VAULT_PATH: string | null = process.env.OBSIDIAN_VAULT_PATH || null;
 const indexer = new VaultIndexer();
+
+// Reindex written notes in the background. Chained so concurrent writes don't interleave LanceDB delete/add.
+let reindexQueue: Promise<unknown> = Promise.resolve();
+function reindexInBackground(vaultPath: string, relativePath: string, removedPath?: string) {
+    reindexQueue = reindexQueue
+        .then(async () => {
+            if (removedPath) await indexer.removeFile(removedPath);
+            await indexer.indexFile(vaultPath, relativePath);
+        })
+        .catch(err => console.error(`Background reindex failed for ${relativePath}:`, err));
+}
 const CONFIG_PATH = process.env.OBSIDIAN_MCP_CONFIG ?? path.join(os.homedir(), '.config', 'obsidian-mcp', 'config.json');
 
 async function saveConfig(vaultPath: string) {
@@ -651,6 +662,7 @@ async function readStdin(): Promise<string> {
           const content = String(args?.content || '');
           await fs.mkdir(path.dirname(filePath), { recursive: true });
           await fs.writeFile(filePath, content, 'utf-8');
+          reindexInBackground(vp, String(args?.file_path));
           return { content: [{ type: 'text', text: `Created note: ${args?.file_path}` }] };
       }
       if (name === 'obsidian_append_note') {
@@ -658,6 +670,7 @@ async function readStdin(): Promise<string> {
           const filePath = path.join(vp, String(args?.file_path));
           const content = String(args?.content || '');
           await fs.appendFile(filePath, '\n' + content, 'utf-8');
+          reindexInBackground(vp, String(args?.file_path));
           return { content: [{ type: 'text', text: `Appended to note: ${args?.file_path}` }] };
       }
       if (name === 'obsidian_get_daily_note') {
@@ -754,6 +767,7 @@ async function readStdin(): Promise<string> {
 
           await fs.mkdir(path.dirname(dest), { recursive: true });
           await fs.rename(source, dest);
+          reindexInBackground(vp, String(args?.dest_path), String(args?.source_path));
           return { content: [{ type: 'text', text: `Moved ${args?.source_path} to ${args?.dest_path}` }] };
       }
       if (name === 'obsidian_update_frontmatter') {
@@ -764,6 +778,7 @@ async function readStdin(): Promise<string> {
               ? { updates: args.updates as Record<string, unknown> }
               : { key: String(args?.key), value: String(args?.value) };
           await fs.writeFile(filePath, applyFrontmatterUpdate(fileContent, updateArg), 'utf-8');
+          reindexInBackground(vp, String(args?.file_path));
           return { content: [{ type: 'text', text: `Updated frontmatter in ${args?.file_path}` }] };
       }
       if (name === 'obsidian_replace_section') {
@@ -775,6 +790,7 @@ async function readStdin(): Promise<string> {
           const range = findSectionRange(fileContent, heading);
           if (!range) throw new McpError(ErrorCode.InvalidParams, `Heading "${heading}" not found in ${args?.file_path}`);
           await fs.writeFile(filePath, replaceSection(fileContent, range, content), 'utf-8');
+          reindexInBackground(vp, String(args?.file_path));
           return { content: [{ type: 'text', text: `Replaced section "${heading}" in ${args?.file_path}` }] };
       }
       if (name === 'obsidian_insert_at_heading') {
@@ -786,6 +802,7 @@ async function readStdin(): Promise<string> {
           const fileContent = await fs.readFile(filePath, 'utf-8');
           const range = findSectionRange(fileContent, heading);
           await fs.writeFile(filePath, insertAtHeading(fileContent, heading, content, position, range), 'utf-8');
+          reindexInBackground(vp, String(args?.file_path));
           return { content: [{ type: 'text', text: `Inserted content under "${heading}" in ${args?.file_path}` }] };
       }
       if (name === 'obsidian_append_daily_log') {
@@ -817,6 +834,7 @@ async function readStdin(): Promise<string> {
           }
 
           await fs.writeFile(filePath, fileContent, 'utf-8');
+          reindexInBackground(vp, path.relative(vp, filePath));
           return { content: [{ type: 'text', text: `Appended to daily note under "${heading}"` }] };
       }
       if (name === 'obsidian_replace_in_note') {
@@ -825,6 +843,7 @@ async function readStdin(): Promise<string> {
           const fileContent = await fs.readFile(filePath, 'utf-8');
           const updated = replaceInNote(fileContent, String(args?.old_text), String(args?.new_text ?? ''));
           await fs.writeFile(filePath, updated, 'utf-8');
+          reindexInBackground(vp, String(args?.file_path));
           return { content: [{ type: 'text', text: `Replaced text in ${args?.file_path}` }] };
       }
       if (name === 'obsidian_get_broken_links') {

@@ -142,6 +142,12 @@ export class VaultIndexer {
     }
   }
 
+  public async removeFile(relativePath: string) {
+    const table = await this.getTable();
+    if (!table) return;
+    await table.delete(`path = '${relativePath.replace(/'/g, "''")}'`);
+  }
+
   public async indexVault(vaultPath: string, force: boolean = false) {
     const embedder = Embedder.getInstance();
     const db = await this.getDb();
