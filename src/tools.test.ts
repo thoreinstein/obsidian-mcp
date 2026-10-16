@@ -27,6 +27,29 @@ afterEach(async () => {
 });
 
 describe('runTool', () => {
+  it("reads one section by heading", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "---\nk: v\n---\n# T\nintro\n## S\nsec body\n## U\nother\n");
+    const out = await runTool("obsidian_read_note", { file_path: "a.md", heading: "S" }, ctx);
+    expect(out).toBe("## S\nsec body");
+    expect(out).not.toContain("other");
+  });
+  it("rejects a missing heading listing the headings", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "# T\nx\n## S\ny\n");
+    await expect(runTool("obsidian_read_note", { file_path: "a.md", heading: "Nope" }, ctx)).rejects.toThrow(/Headings: T, S/);
+  });
+  it("returns frontmatter only as YAML", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "---\ntype: plan\n---\nbody\n");
+    const out = await runTool("obsidian_read_note", { file_path: "a.md", frontmatter_only: true }, ctx);
+    expect(out).toContain("type: plan");
+    expect(out).not.toContain("body");
+    expect(await runTool("obsidian_read_note", { file_path: "sub/b.md", frontmatter_only: true }, ctx)).toBe("");
+  });
+  it("returns a note outline", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "# T\nsee [[X]]\n");
+    const o = JSON.parse(await runTool("obsidian_get_note_outline", { file_path: "a.md" }, ctx));
+    expect(o.headings[0].text).toBe("T");
+    expect(o.links).toEqual(["X"]);
+  });
   it('reads a note', async () => {
     expect(await runTool('obsidian_read_note', { file_path: 'a.md' }, ctx)).toBe('hello a');
   });

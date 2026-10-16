@@ -284,3 +284,14 @@ export function findMatches(
   });
   return out;
 }
+
+/** Summarise a note: frontmatter, headings (line numbers relative to the body after frontmatter), wikilinks, word count. */
+export function noteOutline(content: string): { frontmatter: Record<string, unknown>; headings: HeadingInfo[]; links: string[]; words: number } {
+  const parsed = matter(content);
+  return {
+    frontmatter: parsed.data,
+    headings: scanHeadings(parsed.content),
+    links: extractWikilinks(parsed.content),
+    words: parsed.content.split(/\s+/).filter(Boolean).length,
+  };
+}

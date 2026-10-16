@@ -3,7 +3,8 @@ import * as path from 'path';
 import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
-import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath } from './utils.js';
+import matter from 'gray-matter';
+import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -44,7 +45,21 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_read_note',
-    description: 'Read the content of a specific note (Markdown).',
+    description: 'Read the content of a specific note (Markdown). Optionally return only one section or only the frontmatter.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Relative path to the note' },
+        heading: { type: 'string', description: 'Return only this heading and its section body' },
+        frontmatter_only: { type: 'boolean', description: 'Return only the frontmatter as YAML (empty string if none)' },
+        vault_path: { type: 'string', description: 'Optional vault path override' },
+      },
+      required: ['file_path'],
+    },
+  },
+  {
+    name: 'obsidian_get_note_outline',
+    description: 'Get a note outline: frontmatter, headings, wikilinks and word count. Heading line numbers are 1-based and relative to the body after the frontmatter.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -274,7 +289,27 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_read_note': {
       const vp = vaultArg();
-      return await fs.readFile(path.join(vp, String(args.file_path)), 'utf-8');
+      const content = await fs.readFile(path.join(vp, String(args.file_path)), 'utf-8');
+      if (args.frontmatter_only) {
+        const data = matter(content).data;
+        return Object.keys(data).length ? matter.stringify('', data) : '';
+      }
+      if (args.heading) {
+        const heading = String(args.heading);
+        const body = matter(content).content;
+        const headings = scanHeadings(body);
+        const idx = headings.findIndex(h => h.text === heading);
+        if (idx === -1) throw new Error(`Heading "${heading}" not found. Headings: ${headings.map(h => h.text).join(', ')}`);
+        const lines = body.split('\n');
+        const next = headings.slice(idx + 1).find(h => h.level <= headings[idx].level);
+        return lines.slice(headings[idx].line - 1, next ? next.line - 1 : undefined).join('\n');
+      }
+      return content;
+    }
+    case 'obsidian_get_note_outline': {
+      const vp = vaultArg();
+      const content = await fs.readFile(path.join(vp, String(args.file_path)), 'utf-8');
+      return JSON.stringify(noteOutline(content), null, 2);
     }
     case 'obsidian_create_note': {
       const vp = vaultArg();

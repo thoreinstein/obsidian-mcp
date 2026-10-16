@@ -16,6 +16,7 @@ import {
   buildWhereClause,
   rrfMerge,
   findMatches,
+  noteOutline,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -190,5 +191,15 @@ describe('findMatches', () => {
   it('trims and caps text at 200 chars', () => {
     const [m] = findMatches('   ' + 'a'.repeat(300), 'a', {});
     expect(m.text).toBe('a'.repeat(200));
+  });
+});
+
+describe('noteOutline', () => {
+  it('summarises frontmatter, headings, links and words', () => {
+    const o = noteOutline('---\ntype: plan\n---\n# T\nsee [[X]]\n## S\n');
+    expect(o.frontmatter).toEqual({ type: 'plan' });
+    expect(o.headings.map(h => h.text)).toEqual(['T', 'S']);
+    expect(o.links).toEqual(['X']);
+    expect(o.words).toBeGreaterThan(0);
   });
 });
