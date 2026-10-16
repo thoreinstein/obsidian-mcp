@@ -312,3 +312,44 @@ export function buildInstructions(guide: string | null): string {
     : guide;
   return `${generic}\n\n## Vault guide (AGENTS.md)\n${body}`;
 }
+
+export interface VaultSchema {
+  exclude?: string[];
+  rules: Array<{ prefix: string; required?: string[]; allowed?: Record<string, string[]> }>;
+}
+
+/** Read `<vault>/.obsidian-mcp-schema.json`. Returns null if the file does not exist. */
+export async function loadVaultSchema(vp: string): Promise<VaultSchema | null> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(path.join(vp, '.obsidian-mcp-schema.json'), 'utf-8');
+  } catch (e: any) {
+    if (e?.code === 'ENOENT') return null;
+    throw e;
+  }
+  const schema = JSON.parse(raw) as VaultSchema;
+  return { ...schema, rules: schema.rules ?? [] };
+}
+
+/**
+ * Check note content against the first rule whose prefix matches the vault-relative path.
+ * Returns error strings, or [] if valid. Excluded prefixes are always valid.
+ */
+export function validateFrontmatter(filePath: string, content: string, schema: VaultSchema): string[] {
+  if ((schema.exclude ?? []).some(p => filePath.startsWith(p))) return [];
+  const rule = schema.rules.find(r => filePath.startsWith(r.prefix));
+  if (!rule) return [];
+  const data = matter(content).data as Record<string, unknown>;
+  const errors: string[] = [];
+  for (const field of rule.required ?? []) {
+    if (!(field in data)) errors.push(`missing required field "${field}"`);
+  }
+  for (const [field, allowed] of Object.entries(rule.allowed ?? {})) {
+    if (!(field in data)) continue;
+    const value = data[field];
+    if (typeof value !== 'string' || !allowed.includes(value)) {
+      errors.push(`${field} ${JSON.stringify(value)} not allowed (allowed: ${allowed.join(', ')})`);
+    }
+  }
+  return errors;
+}

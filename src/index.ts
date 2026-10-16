@@ -35,9 +35,8 @@ import {
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import matter from 'gray-matter';
 import { VaultIndexer } from './rag/store.js';
-import { buildInstructions } from './utils.js';
+import { buildInstructions, loadVaultSchema, validateFrontmatter, type VaultSchema } from './utils.js';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 let VAULT_PATH: string | null = process.env.OBSIDIAN_VAULT_PATH || null;
@@ -176,25 +175,15 @@ const ctx: ToolContext = {
             let vp: string;
             try { vp = getVaultPath(input.tool_input?.vault_path || undefined); } catch { process.exit(0); }
 
-            const schemaPath = path.join(vp!, '.obsidian-mcp-schema.json');
-            let schema: { rules: Array<{ prefix: string; required: string[] }> } | undefined;
-            try {
-                schema = JSON.parse(await fs.readFile(schemaPath, 'utf-8'));
-            } catch {
-                process.exit(0); // no schema file — silent no-op
-            }
+            let schema: VaultSchema | null;
+            try { schema = await loadVaultSchema(vp!); } catch { process.exit(0); } // unreadable schema: silent no-op
+            if (!schema) { process.exit(0); }
 
-            const matchingRule = (schema!.rules ?? []).find((r: { prefix: string }) =>
-                filePath.startsWith(r.prefix)
-            );
-            if (!matchingRule) { process.exit(0); }
-
-            const parsed = matter(content);
-            const missing = matchingRule.required.filter((field: string) => !(field in parsed.data));
-            if (missing.length > 0) {
-                console.error(
-                    `[obsidian-mcp] Blocked: "${filePath}" is missing required frontmatter fields: ${missing.join(', ')}`
-                );
+            // Hook file_path may be absolute; rules match vault-relative paths.
+            const relPath = path.isAbsolute(filePath) ? path.relative(vp!, filePath) : filePath;
+            const errors = validateFrontmatter(relPath, content, schema!);
+            if (errors.length > 0) {
+                console.error(`[obsidian-mcp] Blocked: "${relPath}" has invalid frontmatter: ${errors.join('; ')}`);
                 process.exit(2);
             }
             process.exit(0);

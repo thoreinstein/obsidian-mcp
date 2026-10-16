@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
-import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath } from './utils.js';
+import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, validateFrontmatter } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -303,6 +303,14 @@ async function findBacklinks(vp: string, target: string): Promise<string[]> {
   return backlinks;
 }
 
+/** Throw before writing if the vault's schema file rejects this note's frontmatter. No schema means no validation. */
+async function assertValidFrontmatter(vp: string, relPath: string, content: string): Promise<void> {
+  const schema = await loadVaultSchema(vp);
+  if (!schema) return;
+  const errors = validateFrontmatter(relPath, content, schema);
+  if (errors.length > 0) throw new Error(`Frontmatter invalid for ${relPath}: ${errors.join('; ')}`);
+}
+
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
   const vaultArg = () => ctx.getVaultPath(args.vault_path as string | undefined);
 
@@ -346,6 +354,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const filePath = path.join(vp, String(args.file_path));
       const content = String(args.content || '');
+      await assertValidFrontmatter(vp, String(args.file_path), content);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, content, 'utf-8');
       ctx.reindex(vp, String(args.file_path));
@@ -467,7 +476,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const updateArg = (rawUpdates && typeof rawUpdates === 'object')
         ? { updates: rawUpdates as Record<string, unknown> }
         : { key: String(args.key), value: String(args.value) };
-      await fs.writeFile(filePath, applyFrontmatterUpdate(fileContent, updateArg), 'utf-8');
+      const updated = applyFrontmatterUpdate(fileContent, updateArg);
+      await assertValidFrontmatter(vp, String(args.file_path), updated);
+      await fs.writeFile(filePath, updated, 'utf-8');
       ctx.reindex(vp, String(args.file_path));
       return `Updated frontmatter in ${args.file_path}`;
     }

@@ -142,3 +142,30 @@ describe('obsidian_get_related', () => {
     expect(out).toContain('## Similar\n- sub/b.md — sub');
   });
 });
+
+describe('frontmatter schema enforcement', () => {
+  const schema = { exclude: ['engram/'], rules: [{ prefix: '', required: ['type'], allowed: { type: ['plan', 'pattern'] } }] };
+  beforeEach(async () => {
+    await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify(schema));
+  });
+
+  it('update_frontmatter rejects disallowed value and leaves file unchanged', async () => {
+    const original = '---\ntype: plan\n---\nbody\n';
+    await fs.writeFile(path.join(vp, 'a.md'), original);
+    await expect(runTool('obsidian_update_frontmatter', { file_path: 'a.md', key: 'type', value: 'adr' }, ctx))
+      .rejects.toThrow(/Frontmatter invalid for a\.md: .*"adr" not allowed/);
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe(original);
+  });
+
+  it('create_note rejects invalid content and writes nothing', async () => {
+    await expect(runTool('obsidian_create_note', { file_path: 'new.md', content: 'no fm' }, ctx))
+      .rejects.toThrow(/missing required field "type"/);
+    await expect(fs.access(path.join(vp, 'new.md'))).rejects.toThrow();
+  });
+
+  it('create_note accepts valid content and excluded paths', async () => {
+    await runTool('obsidian_create_note', { file_path: 'ok.md', content: '---\ntype: plan\n---\n' }, ctx);
+    await runTool('obsidian_create_note', { file_path: 'engram/x.md', content: 'no fm' }, ctx);
+    await expect(fs.access(path.join(vp, 'ok.md'))).resolves.toBeUndefined();
+  });
+});

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { validateFrontmatter, loadVaultSchema, type VaultSchema } from './utils.js';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
@@ -220,5 +221,45 @@ describe('buildInstructions', () => {
     const s = buildInstructions('hello guide');
     expect(s).toContain('## Vault guide (AGENTS.md)\nhello guide');
     expect(s).not.toContain('truncated');
+  });
+});
+
+describe('validateFrontmatter', () => {
+  const s: VaultSchema = { exclude: ['engram/'], rules: [{ prefix: '', required: ['type'], allowed: { type: ['plan', 'pattern'] } }] };
+  it('accepts an allowed value', () => {
+    expect(validateFrontmatter('a.md', '---\ntype: plan\n---\n', s)).toEqual([]);
+  });
+  it('rejects a value outside the allowed list', () => {
+    const errs = validateFrontmatter('a.md', '---\ntype: adr\n---\n', s);
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatch(/"adr" not allowed/);
+  });
+  it('reports missing required field', () => {
+    expect(validateFrontmatter('a.md', 'no fm', s)).toEqual(['missing required field "type"']);
+  });
+  it('skips excluded prefixes', () => {
+    expect(validateFrontmatter('engram/x.md', 'no fm', s)).toEqual([]);
+  });
+  it('rejects array and non-string values', () => {
+    expect(validateFrontmatter('a.md', '---\ntype: [plan]\n---\n', s)).toHaveLength(1);
+    expect(validateFrontmatter('a.md', '---\ntype: 3\n---\n', s)).toHaveLength(1);
+  });
+  it('does not check allowed values for absent optional fields', () => {
+    const s2: VaultSchema = { rules: [{ prefix: '', allowed: { status: ['a'] } }] };
+    expect(validateFrontmatter('a.md', 'x', s2)).toEqual([]);
+  });
+  it('first matching prefix wins', () => {
+    const s3: VaultSchema = { rules: [{ prefix: 'x/', required: [] }, { prefix: '', required: ['type'] }] };
+    expect(validateFrontmatter('x/a.md', 'x', s3)).toEqual([]);
+  });
+});
+
+describe('loadVaultSchema', () => {
+  it('returns null when no schema file, parses old format when present', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'schema-'));
+    expect(await loadVaultSchema(dir)).toBeNull();
+    await fs.writeFile(path.join(dir, '.obsidian-mcp-schema.json'), JSON.stringify({ rules: [{ prefix: 'a/', required: ['x'] }] }));
+    expect((await loadVaultSchema(dir))!.rules[0].prefix).toBe('a/');
+    await fs.rm(dir, { recursive: true, force: true });
   });
 });
