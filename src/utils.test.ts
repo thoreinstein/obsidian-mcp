@@ -120,6 +120,12 @@ describe('resolveDailyNotePath', () => {
     await fs.writeFile(path.join(vp, '.obsidian', 'daily-notes.json'), JSON.stringify({ folder: 'Daily', format: 'YYYY/MM/YYYY-MM-DD' }));
     expect(await resolveDailyNotePath(vp, d)).toBe('Daily/2026/10/2026-10-16.md');
   });
+  it('throws on malformed config instead of falling back', async () => {
+    const vp = await fs.mkdtemp(path.join(os.tmpdir(), 'daily-'));
+    await fs.mkdir(path.join(vp, '.obsidian'));
+    await fs.writeFile(path.join(vp, '.obsidian', 'daily-notes.json'), '{not json');
+    await expect(resolveDailyNotePath(vp, d)).rejects.toThrow(/Invalid \.obsidian\/daily-notes\.json/);
+  });
   it('defaults when no config', async () => {
     const vp = await fs.mkdtemp(path.join(os.tmpdir(), 'daily-'));
     expect(await resolveDailyNotePath(vp, d)).toBe('2026-10-16.md');

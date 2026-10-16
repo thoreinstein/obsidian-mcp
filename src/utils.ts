@@ -178,12 +178,23 @@ export function formatDailyDate(date: Date, format: string): string {
 export async function resolveDailyNotePath(vaultPath: string, date: Date): Promise<string> {
   let folder = '';
   let format = 'YYYY-MM-DD';
+  const cfgPath = path.join(vaultPath, '.obsidian', 'daily-notes.json');
+  let raw: string | null = null;
   try {
-    const cfg = JSON.parse(await fs.readFile(path.join(vaultPath, '.obsidian', 'daily-notes.json'), 'utf-8'));
-    if (typeof cfg.folder === 'string') folder = cfg.folder;
-    if (typeof cfg.format === 'string' && cfg.format) format = cfg.format;
-  } catch {
-    // missing or unreadable config: use defaults
+    raw = await fs.readFile(cfgPath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error(`Invalid .obsidian/daily-notes.json: ${(e as Error).message}`);
+    }
+  }
+  if (raw !== null) {
+    try {
+      const cfg = JSON.parse(raw);
+      if (typeof cfg.folder === 'string') folder = cfg.folder;
+      if (typeof cfg.format === 'string' && cfg.format) format = cfg.format;
+    } catch (e) {
+      throw new Error(`Invalid .obsidian/daily-notes.json: ${(e as Error).message}`);
+    }
   }
   return path.posix.join(folder, formatDailyDate(date, format) + '.md');
 }
