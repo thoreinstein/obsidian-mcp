@@ -7,7 +7,7 @@ import matter from 'gray-matter';
 import md5 from 'md5';
 import { Embedder } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
-import { dedupeByPath } from '../utils.js';
+import { buildWhereClause, dedupeByPath, rrfMerge, SearchFilters } from '../utils.js';
 
 function chunkingOptionsFromEnv(): ChunkingOptions {
   const minRaw = Number(process.env.OBSIDIAN_RAG_MIN_CHUNK_CHARS ?? '40');
@@ -132,6 +132,7 @@ export class VaultIndexer {
               await this.table.add(chunkRows);
           }
           await this.table.optimize();
+          if (!(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
           console.error(`Indexed ${chunks.length} chunks for ${relativePath}.`);
           return { success: true, chunks: chunks.length };
       }
@@ -263,6 +264,9 @@ export class VaultIndexer {
     // Early exit: nothing changed
     if (canIncremental && allTexts.length === 0 && deletedPaths.length === 0) {
       console.error('Index is up to date, no changes detected.');
+      // Indexes built before hybrid search have no full-text index yet.
+      const table = await db.openTable('notes');
+      if (!(await this.hasFtsIndex(table))) await this.ensureFtsIndex(table);
       await fs.writeFile(HASH_PATH, JSON.stringify(currentHashes));
       return { success: true, chunks: 0, message: 'Index up to date, no changes detected.' };
     }
@@ -375,6 +379,7 @@ export class VaultIndexer {
     // Compact fragments and clean up old versions to prevent stale references
     if (this.table) {
       await this.table.optimize();
+      if (!canIncremental || !(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
     }
 
     // Save updated hashes
@@ -388,7 +393,19 @@ export class VaultIndexer {
     return { success: true, chunks: indexedChunks };
   }
 
-  public async search(query: string, limit: number = 5) {
+  /** Build (or rebuild) the full-text index on chunk text. */
+  private async ensureFtsIndex(table: lancedb.Table) {
+    await table.createIndex('text', { config: lancedb.Index.fts(), replace: true });
+  }
+
+  private async hasFtsIndex(table: lancedb.Table) {
+    const indices = await table.listIndices();
+    return indices.some(i => i.indexType === 'FTS' && i.columns.includes('text'));
+  }
+
+  public async search(query: string, opts: { limit?: number } & SearchFilters = {}) {
+    const { limit = 5, ...filters } = opts;
+    const where = buildWhereClause(filters);
     const table = await this.getTable();
     if (!table) {
         return [];
@@ -398,10 +415,20 @@ export class VaultIndexer {
     const vector = await embedder.embed(query);
 
     // Over-fetch so there are still `limit` distinct notes after collapsing chunks of the same note.
-    const results = await table.vectorSearch(vector)
-        .limit(limit * 5)
-        .toArray();
+    const fetchLimit = limit * 5;
+    let vecQuery = table.vectorSearch(vector);
+    if (where) vecQuery = vecQuery.where(where);
+    const vec = await vecQuery.limit(fetchLimit).toArray();
 
-    return dedupeByPath(results, limit);
+    let fts: any[] = [];
+    try {
+      let ftsQuery = table.query().fullTextSearch(query);
+      if (where) ftsQuery = ftsQuery.where(where);
+      fts = await ftsQuery.limit(fetchLimit).toArray();
+    } catch (err) {
+      console.error('Full-text search failed; using vector results only:', err);
+    }
+
+    return dedupeByPath(rrfMerge([vec, fts]), limit);
   }
 }

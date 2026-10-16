@@ -224,3 +224,40 @@ export function scanHeadings(markdown: string): HeadingInfo[] {
   });
   return headings;
 }
+
+export interface SearchFilters {
+  folder?: string;
+  type?: string;
+  status?: string;
+  after?: string;
+}
+
+/** Build a LanceDB SQL filter from search filters, or undefined when none are set. */
+export function buildWhereClause(f: SearchFilters): string | undefined {
+  const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
+  const clauses: string[] = [];
+  if (f.folder) clauses.push(`starts_with(path, ${q(f.folder.replace(/\/+$/, '') + '/')})`);
+  if (f.type) clauses.push(`type = ${q(f.type)}`);
+  if (f.status) clauses.push(`status = ${q(f.status)}`);
+  if (f.after) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.after)) throw new Error('after must be YYYY-MM-DD');
+    clauses.push(`date >= ${q(f.after)}`);
+  }
+  return clauses.length > 0 ? clauses.join(' AND ') : undefined;
+}
+
+/**
+ * Reciprocal rank fusion: score each item by Σ 1/(k+rank+1) across ranked lists.
+ * Ties keep first-seen order (earlier lists first).
+ */
+export function rrfMerge<T extends { id: string }>(lists: T[][], k = 60): T[] {
+  const scored = new Map<string, { item: T; score: number }>();
+  for (const list of lists) {
+    list.forEach((item, rank) => {
+      const entry = scored.get(item.id) ?? { item, score: 0 };
+      entry.score += 1 / (k + rank + 1);
+      scored.set(item.id, entry);
+    });
+  }
+  return [...scored.values()].sort((a, b) => b.score - a.score).map(e => e.item);
+}

@@ -13,6 +13,8 @@ import {
   formatDailyDate,
   resolveDailyNotePath,
   scanHeadings,
+  buildWhereClause,
+  rrfMerge,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -142,5 +144,34 @@ describe('scanHeadings', () => {
   });
   it('handles tilde fences', () => {
     expect(scanHeadings('~~~\n# no\n~~~\n# yes')).toEqual([{ level: 1, text: 'yes', line: 4 }]);
+  });
+});
+
+describe('buildWhereClause', () => {
+  it('returns undefined with no filters', () => {
+    expect(buildWhereClause({})).toBeUndefined();
+  });
+  it('joins folder prefix and type equality', () => {
+    expect(buildWhereClause({ folder: 'idx_team/', type: 'plan' })).toBe(
+      "starts_with(path, 'idx_team/') AND type = 'plan'"
+    );
+  });
+  it('escapes single quotes', () => {
+    expect(buildWhereClause({ folder: "O'Brien" })).toContain("'O''Brien/'");
+  });
+  it('rejects a non-ISO after date', () => {
+    expect(() => buildWhereClause({ after: 'yesterday' })).toThrow('after must be YYYY-MM-DD');
+  });
+  it('turns after into a date bound', () => {
+    expect(buildWhereClause({ status: 'active', after: '2026-01-01' })).toBe(
+      "status = 'active' AND date >= '2026-01-01'"
+    );
+  });
+});
+
+describe('rrfMerge', () => {
+  it('ranks items found by both lists first', () => {
+    const [a, b, c] = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(rrfMerge([[a, b], [b, c]]).map(x => x.id)).toEqual(['b', 'a', 'c']);
   });
 });

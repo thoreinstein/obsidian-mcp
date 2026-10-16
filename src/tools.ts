@@ -121,7 +121,11 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Question or query to ask your notes' },
-        limit: { type: 'number', description: 'Number of chunks to retrieve (default 5)' },
+        limit: { type: 'number', description: 'Number of notes to return (default 5)' },
+        folder: { type: 'string', description: 'Only notes under this vault folder, e.g. "Engineering"' },
+        type: { type: 'string', description: 'Only notes whose frontmatter type equals this' },
+        status: { type: 'string', description: 'Only notes whose frontmatter status equals this' },
+        after: { type: 'string', description: 'Only notes dated on or after this day (YYYY-MM-DD)' },
       },
       required: ['query'],
     },
@@ -326,9 +330,16 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_rag_query': {
       const query = String(args.query);
       const limit = Number(args.limit) || 5;
-      const results = await ctx.indexer.search(query, limit);
+      const opt = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : String(v));
+      const results = await ctx.indexer.search(query, {
+        limit,
+        folder: opt(args.folder),
+        type: opt(args.type),
+        status: opt(args.status),
+        after: opt(args.after),
+      });
       return results.map((r: any) =>
-        `---\nFile: ${r.path}\nMeta: ${formatResultMeta(r)}\nRelevance: ${r._distance}\nContent: ${r.text}\n---`
+        `---\nFile: ${r.path}\nMeta: ${formatResultMeta(r)}\n${r.heading ? `Section: ${r.heading}\n` : ''}Content: ${r.text}\n---`
       ).join('\n');
     }
     case 'obsidian_get_backlinks': {

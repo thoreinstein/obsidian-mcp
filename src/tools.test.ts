@@ -49,6 +49,18 @@ describe('runTool', () => {
     await runTool('obsidian_rag_index', { force_reindex: 'true' }, ctx);
     expect(indexVault).toHaveBeenCalledWith(vp, true);
   });
+  it('passes RAG filters and prints Section only for headed hits', async () => {
+    const search = vi.fn(async () => [
+      { path: 'working/p.md', heading: 'Plan > Steps', text: 'do it', date: '2026-10-01', status: '', type: 'plan' },
+      { path: 'top.md', heading: '', text: 'intro', date: '', status: '', type: '' },
+    ]);
+    ctx.indexer = { search } as any;
+    const out = await runTool('obsidian_rag_query', { query: 'q', limit: '3', folder: 'working', type: 'plan', after: '2026-01-01' }, ctx);
+    expect(search).toHaveBeenCalledWith('q', { limit: 3, folder: 'working', type: 'plan', status: undefined, after: '2026-01-01' });
+    expect(out).toContain('File: working/p.md\nMeta: working · 2026-10-01 · type: plan\nSection: Plan > Steps\nContent: do it');
+    expect(out).toContain('File: top.md\nMeta: (root)\nContent: intro');
+    expect(out).not.toContain('Relevance');
+  });
 });
 
 describe('TOOL_DEFINITIONS', () => {
