@@ -37,6 +37,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { VaultIndexer } from './rag/store.js';
 import { buildInstructions, loadVaultSchema, validateFrontmatter, type VaultSchema } from './utils.js';
+import { runEval } from './rag/eval.js';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 let VAULT_PATH: string | null = process.env.OBSIDIAN_VAULT_PATH || null;
@@ -122,7 +123,7 @@ const ctx: ToolContext = {
   const args = process.argv.slice(2);
 
   // If arguments start with a tool name (simple heuristic)
-  const knownTools = [...TOOL_DEFINITIONS.map(t => t.name), 'validate_frontmatter'];
+  const knownTools = [...TOOL_DEFINITIONS.map(t => t.name), 'validate_frontmatter', 'obsidian_rag_eval'];
 
   if (args.length > 0 && knownTools.includes(args[0])) {
     const toolName = args[0];
@@ -159,6 +160,9 @@ const ctx: ToolContext = {
                 process.exit(0);
             }
             result = await runTool(toolName, { ...parsedArgs, vault_path: input.tool_input?.vault_path || parsedArgs.vault_path, file_path: hookFp }, ctx);
+        } else if (toolName === 'obsidian_rag_eval') {
+            if (typeof parsedArgs.file !== 'string') throw new Error('obsidian_rag_eval requires --file <queries.json>');
+            result = await runEval(parsedArgs.file, (q, opts) => indexer.search(q, opts));
         } else if (toolName !== 'validate_frontmatter') {
             result = await runTool(toolName, parsedArgs, ctx);
         } else {

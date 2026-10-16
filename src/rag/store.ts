@@ -5,7 +5,7 @@ import * as os from 'os';
 import { glob } from 'glob';
 import matter from 'gray-matter';
 import md5 from 'md5';
-import { Embedder } from './embedder.js';
+import { Embedder, MODEL_SLUG } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
 import { buildWhereClause, dedupeByPath, rrfMerge, SearchFilters } from '../utils.js';
 
@@ -21,8 +21,8 @@ function chunkingOptionsFromEnv(): ChunkingOptions {
 
 // Canonical data dir shared by every client of this server (gemini, claude, pi).
 const DATA_DIR = process.env.OBSIDIAN_MCP_DATA_DIR || path.join(os.homedir(), '.config', 'obsidian-mcp');
-const DB_PATH = path.join(DATA_DIR, 'lancedb');
-const HASH_PATH = path.join(DATA_DIR, 'file-hashes.json');
+const DB_PATH = path.join(DATA_DIR, `lancedb${MODEL_SLUG}`);
+const HASH_PATH = path.join(DATA_DIR, `file-hashes${MODEL_SLUG}.json`);
 
 interface NoteChunk extends ChunkMetadata {
   vector: number[];
@@ -412,7 +412,7 @@ export class VaultIndexer {
     }
 
     const embedder = Embedder.getInstance();
-    const vector = await embedder.embed(query);
+    const vector = await embedder.embed(query, 'query');
 
     // Over-fetch so there are still `limit` distinct notes after collapsing chunks of the same note.
     const fetchLimit = limit * 5;
