@@ -128,3 +128,17 @@ describe('TOOL_DEFINITIONS', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 });
+
+describe('obsidian_get_related', () => {
+  it('lists resolved and unresolved links out, backlinks and similar notes', async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), 'see [[b]] and [[Ghost#H]]');
+    await fs.writeFile(path.join(vp, 'sub', 'b.md'), 'back to [[a]]');
+    const similarNotes = vi.fn(async () => [{ path: 'sub/b.md', title: 'B', date: '', status: '', type: '' }]);
+    ctx.indexer = { similarNotes } as any;
+    const out = await runTool('obsidian_get_related', { file_path: 'a.md' }, ctx);
+    expect(similarNotes).toHaveBeenCalledWith('a.md', 5);
+    expect(out).toContain('## Links out\n- [[b]] → sub/b.md\n- [[Ghost]] → (unresolved)');
+    expect(out).toContain('## Backlinks\n- sub/b.md');
+    expect(out).toContain('## Similar\n- sub/b.md — sub');
+  });
+});

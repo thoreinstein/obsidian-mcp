@@ -161,6 +161,19 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
     },
   },
   {
+    name: 'obsidian_get_related',
+    description: 'Get links out, backlinks and semantically similar notes for a note in one call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Relative path to the note' },
+        limit: { type: 'number', description: 'Number of similar notes to return (default 5)' },
+        vault_path: { type: 'string', description: 'Optional vault path override' },
+      },
+      required: ['file_path'],
+    },
+  },
+  {
     name: 'obsidian_get_links',
     description: 'Get all outgoing links from a specific note.',
     inputSchema: {
@@ -271,6 +284,24 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
 
 // CLI args arrive as strings; MCP args are typed JSON. Accept both for booleans.
 const isTrue = (v: unknown): boolean => v === true || v === 'true';
+
+/** Relative paths of notes containing a wikilink to `target` (basename, no extension). */
+async function findBacklinks(vp: string, target: string): Promise<string[]> {
+  const linkRegex = new RegExp(`\\[\\[${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([\\]\\|#])`, 'i');
+  const files = await glob('**/*.md', { cwd: vp });
+  const backlinks: string[] = [];
+  const batchSize = 50;
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize);
+    await Promise.all(batch.map(async (f) => {
+      try {
+        const content = await fs.readFile(path.join(vp, f), 'utf-8');
+        if (linkRegex.test(content)) backlinks.push(f);
+      } catch { }
+    }));
+  }
+  return backlinks;
+}
 
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
   const vaultArg = () => ctx.getVaultPath(args.vault_path as string | undefined);
@@ -387,21 +418,31 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_get_backlinks': {
       const vp = vaultArg();
       const target = String(args.file_name).replace(/\.md$/i, '');
-      const linkRegex = new RegExp(`\\[\\[${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([\\]\\|#])`, 'i');
-      const files = await glob('**/*.md', { cwd: vp });
-      const backlinks: string[] = [];
-      const batchSize = 50;
-      for (let i = 0; i < files.length; i += batchSize) {
-        const batch = files.slice(i, i + batchSize);
-        await Promise.all(batch.map(async (f) => {
-          try {
-            const content = await fs.readFile(path.join(vp, f), 'utf-8');
-            if (linkRegex.test(content)) backlinks.push(f);
-          } catch { }
-        }));
-      }
+      const backlinks = await findBacklinks(vp, target);
       if (backlinks.length === 0) return `No backlinks found for "[[${target}]]".`;
       return `Found ${backlinks.length} backlinks for "[[${target}]]":\n` + backlinks.map(f => `- ${f}`).join('\n');
+    }
+    case 'obsidian_get_related': {
+      const vp = vaultArg();
+      const filePath = String(args.file_path);
+      const limit = Number(args.limit) || 5;
+      const content = await fs.readFile(path.join(vp, filePath), 'utf-8');
+      const allFiles = await glob('**/*.md', { cwd: vp });
+      const byName = new Map<string, string>();
+      for (const f of allFiles) {
+        const key = path.basename(f, '.md').toLowerCase();
+        if (!byName.has(key)) byName.set(key, f);
+      }
+      const targets = [...new Set(extractWikilinks(content).map(stripHeadingFromLink).filter(Boolean))];
+      const out = targets.map(t => `- [[${t}]] → ${byName.get(t.toLowerCase()) ?? '(unresolved)'}`);
+      const backlinks = await findBacklinks(vp, path.basename(filePath, '.md'));
+      const similar = await ctx.indexer.similarNotes(filePath, limit);
+      const list = (lines: string[]) => (lines.length ? lines.join('\n') : '(none)');
+      return [
+        '## Links out', list(out), '',
+        '## Backlinks', list(backlinks.map(f => `- ${f}`)), '',
+        '## Similar', list(similar.map(r => `- ${r.path} — ${formatResultMeta(r)}`)),
+      ].join('\n');
     }
     case 'obsidian_get_links': {
       const vp = vaultArg();

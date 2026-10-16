@@ -431,4 +431,28 @@ export class VaultIndexer {
 
     return dedupeByPath(rrfMerge([vec, fts]), limit);
   }
+
+  /** Notes semantically closest to one indexed note, using the mean of its chunk vectors. */
+  public async similarNotes(relativePath: string, limit: number) {
+    const table = await this.getTable();
+    if (!table) return [];
+
+    const rows = await table.query().where(`path = '${relativePath.replace(/'/g, "''")}'`).toArray();
+    if (rows.length === 0) return [];
+
+    const vectors = rows.map((r: any) => Array.from(r.vector as ArrayLike<number>));
+    const mean = vectors[0].map((_, i) => vectors.reduce((sum, v) => sum + v[i], 0) / vectors.length);
+    const norm = Math.sqrt(mean.reduce((sum, x) => sum + x * x, 0));
+    const query = norm > 0 ? mean.map(x => x / norm) : mean;
+
+    // Over-fetch: the note's own chunks crowd the top hits and several chunks may share a note.
+    const hits = await table.vectorSearch(query).limit((limit + rows.length) * 5).toArray();
+    return dedupeByPath(hits.filter((h: any) => h.path !== relativePath), limit).map((h: any) => ({
+      path: h.path as string,
+      title: (h.title ?? '') as string,
+      date: (h.date ?? '') as string,
+      status: (h.status ?? '') as string,
+      type: (h.type ?? '') as string,
+    }));
+  }
 }
