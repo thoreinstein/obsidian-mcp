@@ -33,6 +33,27 @@ describe('runTool', () => {
     expect(out).toBe("## S\nsec body");
     expect(out).not.toContain("other");
   });
+  it("includes subsections and stops at the next same-or-higher heading", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "# T\n## S\nbody\n### Sub\nsubtext\n## Next\nnextbody\n");
+    const out = await runTool("obsidian_read_note", { file_path: "a.md", heading: "S" }, ctx);
+    expect(out).toBe("## S\nbody\n### Sub\nsubtext");
+    await fs.writeFile(path.join(vp, "a.md"), "## S\nbody\n# Top\ntop\n");
+    expect(await runTool("obsidian_read_note", { file_path: "a.md", heading: "S" }, ctx)).toBe("## S\nbody");
+  });
+  it("ignores headings inside fenced code in sections and outline", async () => {
+    const md = "## S\nbefore\n```\n# fake\n```\nafter\n## Next\n";
+    await fs.writeFile(path.join(vp, "a.md"), md);
+    const out = await runTool("obsidian_read_note", { file_path: "a.md", heading: "S" }, ctx);
+    expect(out).toContain("# fake");
+    expect(out).toContain("after");
+    expect(out).not.toContain("Next");
+    const o = JSON.parse(await runTool("obsidian_get_note_outline", { file_path: "a.md" }, ctx));
+    expect(o.headings.map((h: any) => h.text)).toEqual(["S", "Next"]);
+  });
+  it("returns the first section when heading text repeats", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "## S\nfirst\n## S\nsecond\n");
+    expect(await runTool("obsidian_read_note", { file_path: "a.md", heading: "S" }, ctx)).toBe("## S\nfirst");
+  });
   it("rejects a missing heading listing the headings", async () => {
     await fs.writeFile(path.join(vp, "a.md"), "# T\nx\n## S\ny\n");
     await expect(runTool("obsidian_read_note", { file_path: "a.md", heading: "Nope" }, ctx)).rejects.toThrow(/Headings: T, S/);

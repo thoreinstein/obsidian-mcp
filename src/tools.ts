@@ -50,7 +50,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Relative path to the note' },
-        heading: { type: 'string', description: 'Return only this heading and its section body' },
+        heading: { type: 'string', description: 'Return only this heading and its section body (first matching heading wins if the text repeats)' },
         frontmatter_only: { type: 'boolean', description: 'Return only the frontmatter as YAML (empty string if none)' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
