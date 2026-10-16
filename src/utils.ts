@@ -295,3 +295,20 @@ export function noteOutline(content: string): { frontmatter: Record<string, unkn
     words: parsed.content.split(/\s+/).filter(Boolean).length,
   };
 }
+
+const GUIDE_LIMIT = 4000;
+
+export function buildInstructions(guide: string | null): string {
+  const generic = [
+    'Obsidian vault tools. Pick the cheapest tool that answers the question:',
+    '- obsidian_rag_query: questions and exact tokens (hybrid keyword + vector; filters folder/type/status/after).',
+    '- obsidian_search_notes: line-level grep (regex, folder) when you need exact matching lines.',
+    '- obsidian_get_note_outline, or obsidian_read_note with `heading` / `frontmatter_only`: read part of a note instead of all of it.',
+    '- obsidian_get_related: context around a note once you have found it.',
+  ].join('\n');
+  if (!guide) return generic;
+  const body = guide.length > GUIDE_LIMIT
+    ? guide.slice(0, GUIDE_LIMIT) + '\n…(truncated; read resource obsidian://vault-guide)'
+    : guide;
+  return `${generic}\n\n## Vault guide (AGENTS.md)\n${body}`;
+}

@@ -27,7 +27,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ErrorCode,
+  ListResourcesRequestSchema,
   ListToolsRequestSchema,
+  ReadResourceRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import * as fs from 'fs/promises';
@@ -35,6 +37,7 @@ import * as path from 'path';
 import * as os from 'os';
 import matter from 'gray-matter';
 import { VaultIndexer } from './rag/store.js';
+import { buildInstructions } from './utils.js';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 let VAULT_PATH: string | null = process.env.OBSIDIAN_VAULT_PATH || null;
@@ -205,6 +208,15 @@ const ctx: ToolContext = {
   }
 
   // MCP Server Mode
+  const guidePath = VAULT_PATH ? path.join(VAULT_PATH, 'AGENTS.md') : null;
+  let guide: string | null = null;
+  if (guidePath) {
+    try {
+      guide = await fs.readFile(guidePath, 'utf-8');
+    } catch {
+      guide = null;
+    }
+  }
   const server = new Server(
     {
       name: 'obsidian-rag',
@@ -213,13 +225,28 @@ const ctx: ToolContext = {
     {
       capabilities: {
         tools: {},
+        ...(guide !== null ? { resources: {} } : {}),
       },
+      instructions: buildInstructions(guide),
     }
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return { tools: TOOL_DEFINITIONS };
   });
+
+  if (guide !== null && guidePath) {
+    server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+      resources: [{ uri: 'obsidian://vault-guide', name: 'Vault guide', mimeType: 'text/markdown' }],
+    }));
+    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      if (request.params.uri !== 'obsidian://vault-guide') {
+        throw new McpError(ErrorCode.InvalidParams, `Unknown resource: ${request.params.uri}`);
+      }
+      const text = await fs.readFile(guidePath, 'utf-8');
+      return { contents: [{ uri: 'obsidian://vault-guide', mimeType: 'text/markdown', text }] };
+    });
+  }
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;

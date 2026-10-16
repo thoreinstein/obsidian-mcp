@@ -17,6 +17,7 @@ import {
   rrfMerge,
   findMatches,
   noteOutline,
+  buildInstructions,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -201,5 +202,23 @@ describe('noteOutline', () => {
     expect(o.headings.map(h => h.text)).toEqual(['T', 'S']);
     expect(o.links).toEqual(['X']);
     expect(o.words).toBeGreaterThan(0);
+  });
+});
+
+describe('buildInstructions', () => {
+  it('generic only when no guide', () => {
+    const s = buildInstructions(null);
+    expect(s).toContain('obsidian_rag_query');
+    expect(s).not.toContain('Vault guide');
+  });
+  it('truncates long guide and points at the resource', () => {
+    const s = buildInstructions('x'.repeat(5000));
+    expect(s.length).toBeLessThan(buildInstructions(null).length + 4200);
+    expect(s.endsWith('\n…(truncated; read resource obsidian://vault-guide)')).toBe(true);
+  });
+  it('includes short guide untruncated', () => {
+    const s = buildInstructions('hello guide');
+    expect(s).toContain('## Vault guide (AGENTS.md)\nhello guide');
+    expect(s).not.toContain('truncated');
   });
 });
