@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "description": "Obsidian vault integration MCP server with local RAG capabilities",
   "main": "dist/index.js",
+  "bin": {
+    "obsidian-mcp": "dist/index.js"
+  },
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --format=cjs --external:@lancedb/lancedb --external:onnxruntime-node --external:sharp --banner:js=\"var import_meta = { url: 'file://' + __filename };\" --define:import.meta=import_meta",
     "type-check": "tsc --noEmit",
     "start": "node dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepare": "npm run build"
   },
   "keywords": [
     "obsidian",
