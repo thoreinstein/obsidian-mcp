@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildEmbeddingInputs, extractNoteMeta } from './chunking.js';
+import { buildEmbeddingInputs, extractNoteMeta, splitByHeadings } from './chunking.js';
 
 describe('extractNoteMeta', () => {
   it('prefers frontmatter title, updated date, status and type', () => {
@@ -30,5 +30,21 @@ describe('buildEmbeddingInputs', () => {
     const { textsToEmbed, chunkMetadata } = buildEmbeddingInputs('a/b.md', body);
     expect(textsToEmbed[0]).toBe(`a/b.md\n\n${body}`);
     expect(chunkMetadata[0]).toMatchObject({ title: '', date: '', status: '', type: '' });
+  });
+});
+
+describe('heading-aware chunking', () => {
+  it('splitByHeadings builds heading paths', () => {
+    const sections = splitByHeadings('intro\n# A\naaa\n## B\nbbb\n# C\nccc');
+    expect(sections.map(s => s.heading)).toEqual(['', 'A', 'A > B', 'C']);
+  });
+
+  it('never merges across a heading boundary and prefixes the embed header', () => {
+    const meta = { title: 'Title', date: '', status: '', type: '' };
+    const body = '# A\n' + 'a'.repeat(60) + '\n# C\n' + 'c'.repeat(60);
+    const { textsToEmbed, chunkMetadata } = buildEmbeddingInputs('x.md', body, undefined, meta);
+    expect(chunkMetadata).toHaveLength(2);
+    expect(chunkMetadata.map(c => c.heading)).toEqual(['A', 'C']);
+    expect(textsToEmbed[0].startsWith('Title > A (x.md)')).toBe(true);
   });
 });

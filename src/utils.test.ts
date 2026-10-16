@@ -12,6 +12,7 @@ import {
   dedupeByPath,
   formatDailyDate,
   resolveDailyNotePath,
+  scanHeadings,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -129,5 +130,17 @@ describe('resolveDailyNotePath', () => {
   it('defaults when no config', async () => {
     const vp = await fs.mkdtemp(path.join(os.tmpdir(), 'daily-'));
     expect(await resolveDailyNotePath(vp, d)).toBe('2026-10-16.md');
+  });
+});
+
+describe('scanHeadings', () => {
+  it('skips headings inside fenced blocks', () => {
+    expect(scanHeadings('# A\n```\n# not\n```\n## B')).toEqual([
+      { level: 1, text: 'A', line: 1 },
+      { level: 2, text: 'B', line: 5 },
+    ]);
+  });
+  it('handles tilde fences', () => {
+    expect(scanHeadings('~~~\n# no\n~~~\n# yes')).toEqual([{ level: 1, text: 'yes', line: 4 }]);
   });
 });

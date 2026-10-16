@@ -198,3 +198,29 @@ export async function resolveDailyNotePath(vaultPath: string, date: Date): Promi
   }
   return path.posix.join(folder, formatDailyDate(date, format) + '.md');
 }
+
+export interface HeadingInfo {
+  level: number;
+  text: string;
+  line: number;
+}
+
+/** List ATX headings (1-based line numbers), ignoring lines inside fenced code blocks. */
+export function scanHeadings(markdown: string): HeadingInfo[] {
+  const headings: HeadingInfo[] = [];
+  let fence: string | null = null;
+  markdown.split('\n').forEach((raw, i) => {
+    const line = raw.trimEnd();
+    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (fence === null) fence = marker;
+      else if (fence === marker) fence = null;
+      return;
+    }
+    if (fence !== null) return;
+    const m = line.match(/^(#{1,6})\s+(.+)$/);
+    if (m) headings.push({ level: m[1].length, text: m[2].trim(), line: i + 1 });
+  });
+  return headings;
+}

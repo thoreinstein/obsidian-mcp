@@ -169,8 +169,8 @@ export class VaultIndexer {
     if (tableExists && !force) {
       // Tables built before chunks carried note metadata can't take new rows; rebuild.
       const schema = await (await db.openTable('notes')).schema();
-      if (!schema.fields.some(f => f.name === 'title')) {
-        console.error('Index schema predates note metadata; forcing full re-index.');
+      if (!schema.fields.some(f => f.name === 'title') || !schema.fields.some(f => f.name === 'heading')) {
+        console.error('Index schema predates note metadata or heading chunks; forcing full re-index.');
         force = true;
       }
     }
