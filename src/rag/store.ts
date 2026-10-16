@@ -7,6 +7,7 @@ import matter from 'gray-matter';
 import md5 from 'md5';
 import { Embedder } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
+import { dedupeByPath } from '../utils.js';
 
 function chunkingOptionsFromEnv(): ChunkingOptions {
   const minRaw = Number(process.env.OBSIDIAN_RAG_MIN_CHUNK_CHARS ?? '40');
@@ -396,10 +397,11 @@ export class VaultIndexer {
     const embedder = Embedder.getInstance();
     const vector = await embedder.embed(query);
 
+    // Over-fetch so there are still `limit` distinct notes after collapsing chunks of the same note.
     const results = await table.vectorSearch(vector)
-        .limit(limit)
+        .limit(limit * 5)
         .toArray();
 
-    return results;
+    return dedupeByPath(results, limit);
   }
 }

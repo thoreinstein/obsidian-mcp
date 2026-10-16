@@ -128,3 +128,19 @@ export function formatResultMeta(r: { path: string; date?: string; status?: stri
   if (r.type) parts.push(`type: ${r.type}`);
   return parts.join(' · ');
 }
+
+/**
+ * Keep only the best-ranked hit per note so one long note can't fill every result slot.
+ * Expects hits already sorted best-first.
+ */
+export function dedupeByPath<T extends { path: string }>(hits: T[], limit: number): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const hit of hits) {
+    if (seen.has(hit.path)) continue;
+    seen.add(hit.path);
+    out.push(hit);
+    if (out.length >= limit) break;
+  }
+  return out;
+}

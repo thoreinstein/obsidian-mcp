@@ -7,6 +7,7 @@ import {
   stripHeadingFromLink,
   applyFrontmatterUpdate,
   formatResultMeta,
+  dedupeByPath,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -79,5 +80,15 @@ describe('formatResultMeta', () => {
   });
   it('omits empty fields and labels root notes', () => {
     expect(formatResultMeta({ path: 'Home.md', date: '', status: '' })).toBe('(root)');
+  });
+});
+
+describe('dedupeByPath', () => {
+  it('keeps the first (best-ranked) hit per path, in order, up to limit', () => {
+    const hits = [{ path: 'a' }, { path: 'a' }, { path: 'b' }, { path: 'a' }, { path: 'c' }, { path: 'd' }];
+    expect(dedupeByPath(hits, 3)).toEqual([{ path: 'a' }, { path: 'b' }, { path: 'c' }]);
+  });
+  it('returns fewer than limit when there are not enough distinct paths', () => {
+    expect(dedupeByPath([{ path: 'a' }, { path: 'a' }], 5)).toEqual([{ path: 'a' }]);
   });
 });
