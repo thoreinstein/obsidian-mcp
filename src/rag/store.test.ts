@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -15,6 +15,10 @@ const NOTES: Record<string, string> = {
   // Distractors: look like the exact tokens to the embedding model but share no full-text token with them.
   'tickets/near.md': '# FRAAS36445\nFRAAS36445 FRAAS36447 FRAAS36440 FRAAS36446X\n',
   'codes.md': '# Codes\nQXJ-UNIQ ZQX-UNIQ QXJ-UNIQ ZQX-UNIQ QXJ-UNIQ ZQX-UNIQ\n',
+  // Folder names with LIKE/SQL metacharacters ('_' and "'") for the folder filter.
+  'idx_team/a.md': '# Team A\nNotes from the team sync about the search ranking rollout.\n',
+  'idxXteam/b.md': '# Team X\nNotes from the other team sync about the search ranking rollout.\n',
+  "O'Brien notes/c.md": '# Brien\nPersonal notes on the search ranking rollout and agent tooling.\n',
   'old/dated.md': '---\ndate: 2025-01-01\n---\n# New year\nOld retrospective on the search ranking and agent tooling from last year.\n',
 };
 
@@ -43,9 +47,43 @@ describe('VaultIndexer.search (hybrid)', () => {
     expect(hits[0].path).toBe('tickets/fraas.md');
   }, 120_000);
 
-  it('does not throw on query-syntax characters', async () => {
-    const hits = await indexer.search('forge ema --dry-run "quoted" a:b');
-    expect(Array.isArray(hits)).toBe(true);
+  it('runs full-text search on query-syntax characters without falling back', async () => {
+    const errSpy = vi.spyOn(console, 'error');
+    try {
+      const hits = await indexer.search('forge ema --dry-run "quoted" a:b');
+      expect(Array.isArray(hits)).toBe(true);
+      const fallbackLogs = errSpy.mock.calls.filter(c => String(c[0]).includes('Full-text search failed'));
+      expect(fallbackLogs).toEqual([]);
+    } finally {
+      errSpy.mockRestore();
+    }
+  }, 120_000);
+
+  it('falls back to vector results and logs when full-text search errors', async () => {
+    const lancedb = await import('@lancedb/lancedb');
+    const ftsSpy = vi.spyOn(lancedb.Query.prototype, 'fullTextSearch').mockImplementation(() => {
+      throw new Error('forced FTS failure');
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const hits = await indexer.search('exponential backoff retry');
+      expect(ftsSpy).toHaveBeenCalled();
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0].path).toBe('Engineering/pattern.md');
+      expect(errSpy.mock.calls.some(c => String(c[0]).includes('Full-text search failed'))).toBe(true);
+    } finally {
+      ftsSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  }, 120_000);
+
+  it.each([
+    ['idx_team', 'idx_team/'],
+    ["O'Brien notes", "O'Brien notes/"],
+  ])('folder filter %s matches only that folder', async (folder, prefix) => {
+    const hits = await indexer.search('team sync notes search ranking rollout', { folder, limit: 10 });
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.every((h: any) => h.path.startsWith(prefix))).toBe(true);
   }, 120_000);
 
   it('filters by type', async () => {
