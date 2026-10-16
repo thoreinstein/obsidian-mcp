@@ -73,14 +73,52 @@ export function mergeSegmentsForEmbedding(segments: string[], targetChars: numbe
   return merged;
 }
 
-export function buildEmbeddingInputs(relativePath: string, body: string, options?: ChunkingOptions) {
+export interface NoteMeta {
+  title: string;
+  date: string;
+  status: string;
+  type: string;
+}
+
+export interface ChunkMetadata extends NoteMeta {
+  id: string;
+  text: string;
+  path: string;
+}
+
+function toDateString(value: unknown): string {
+  if (value instanceof Date && !isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  return '';
+}
+
+/**
+ * Derive per-note metadata stored alongside each chunk so search results can show
+ * what kind of note a hit came from (e.g. an archived proposal vs. a live note).
+ */
+export function extractNoteMeta(relativePath: string, frontmatter: Record<string, unknown>, body: string, mtime?: Date): NoteMeta {
+  const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  const fmTitle = typeof frontmatter.title === 'string' ? frontmatter.title.trim() : '';
+  const title = fmTitle || heading || relativePath.split('/').pop()!.replace(/\.md$/i, '');
+  const date =
+    toDateString(frontmatter.updated) ||
+    toDateString(frontmatter.modified) ||
+    toDateString(frontmatter.created) ||
+    toDateString(frontmatter.date) ||
+    (mtime ? toDateString(mtime) : '');
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  return { title, date, status: str(frontmatter.status), type: str(frontmatter.type) };
+}
+
+export function buildEmbeddingInputs(relativePath: string, body: string, options?: ChunkingOptions, meta?: NoteMeta) {
   const minChunkChars = options?.minChunkChars ?? DEFAULTS.minChunkChars;
   const maxChunkChars = options?.maxChunkChars ?? DEFAULTS.maxChunkChars;
   const targetChunkChars = options?.targetChunkChars ?? DEFAULTS.targetChunkChars;
 
   const paragraphs = body.split(/\n\s*\n/).filter(p => p.trim().length > 0);
   const rawSegments: string[] = [];
-  const chunkMetadata: { id: string; text: string; path: string }[] = [];
+  const chunkMetadata: ChunkMetadata[] = [];
+  const noteMeta: NoteMeta = meta ?? { title: '', date: '', status: '', type: '' };
 
   for (let i = 0; i < paragraphs.length; i++) {
     const paragraph = paragraphs[i].trim();
@@ -94,14 +132,20 @@ export function buildEmbeddingInputs(relativePath: string, body: string, options
     }
   }
 
-  const textsToEmbed = mergeSegmentsForEmbedding(rawSegments, targetChunkChars);
-  for (let chunkIndex = 0; chunkIndex < textsToEmbed.length; chunkIndex++) {
+  const chunkTexts = mergeSegmentsForEmbedding(rawSegments, targetChunkChars);
+  for (let chunkIndex = 0; chunkIndex < chunkTexts.length; chunkIndex++) {
     chunkMetadata.push({
       id: md5(`${relativePath}-${chunkIndex}`),
       path: relativePath,
-      text: textsToEmbed[chunkIndex]
+      text: chunkTexts[chunkIndex],
+      ...noteMeta
     });
   }
+
+  // Embed each chunk with its note's title and path so generic chunks (checklists,
+  // boilerplate sections) are anchored to the note they came from.
+  const header = noteMeta.title ? `${noteMeta.title} (${relativePath})` : relativePath;
+  const textsToEmbed = chunkTexts.map(text => `${header}\n\n${text}`);
 
   return { textsToEmbed, chunkMetadata };
 }

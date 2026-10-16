@@ -6,7 +6,7 @@ import { glob } from 'glob';
 import matter from 'gray-matter';
 import md5 from 'md5';
 import { Embedder } from './embedder.js';
-import { buildEmbeddingInputs, ChunkingOptions } from './chunking.js';
+import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
 
 function chunkingOptionsFromEnv(): ChunkingOptions {
   const minRaw = Number(process.env.OBSIDIAN_RAG_MIN_CHUNK_CHARS ?? '40');
@@ -23,10 +23,7 @@ const DATA_DIR = process.env.OBSIDIAN_MCP_DATA_DIR || path.join(os.homedir(), '.
 const DB_PATH = path.join(DATA_DIR, 'lancedb');
 const HASH_PATH = path.join(DATA_DIR, 'file-hashes.json');
 
-interface NoteChunk {
-  id: string;
-  path: string;
-  text: string;
+interface NoteChunk extends ChunkMetadata {
   vector: number[];
 }
 
@@ -75,7 +72,7 @@ export class VaultIndexer {
   private async embedWithFallback(
     embedder: Embedder,
     texts: string[],
-    meta: { id: string; text: string; path: string }[]
+    meta: ChunkMetadata[]
   ): Promise<NoteChunk[]> {
     if (texts.length === 0) return [];
 
@@ -110,9 +107,11 @@ export class VaultIndexer {
 
     try {
       const content = await fs.readFile(filePath, 'utf-8');
+      const { mtime } = await fs.stat(filePath);
       const { data, content: body } = matter(content);
 
-      const { textsToEmbed, chunkMetadata } = buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv());
+      const meta = extractNoteMeta(relativePath, data, body, mtime);
+      const { textsToEmbed, chunkMetadata } = buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv(), meta);
 
       if (textsToEmbed.length > 0) {
           const chunks = await this.embedWithFallback(embedder, textsToEmbed, chunkMetadata);
@@ -166,6 +165,14 @@ export class VaultIndexer {
 
     const tableNames = await db.tableNames();
     const tableExists = tableNames.includes('notes');
+    if (tableExists && !force) {
+      // Tables built before chunks carried note metadata can't take new rows; rebuild.
+      const schema = await (await db.openTable('notes')).schema();
+      if (!schema.fields.some(f => f.name === 'title')) {
+        console.error('Index schema predates note metadata; forcing full re-index.');
+        force = true;
+      }
+    }
     const hasPreviousHashes = Object.keys(previousHashes).length > 0;
     const canIncremental = tableExists && hasPreviousHashes && !force;
 
@@ -176,7 +183,7 @@ export class VaultIndexer {
 
     // ── Phase 1: Read all files, compute hashes, build chunks for changed files ──
     const allTexts: string[] = [];
-    const allMeta: { id: string; text: string; path: string }[] = [];
+    const allMeta: ChunkMetadata[] = [];
     const currentHashes: Record<string, string> = {};
     const changedPaths: string[] = [];
     let filesRead = 0;
@@ -217,8 +224,10 @@ export class VaultIndexer {
             }
 
             changedPaths.push(relativePath);
-            const { content: body } = matter(content);
-            return buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv());
+            const { mtime } = await fs.stat(filePath);
+            const { data, content: body } = matter(content);
+            const meta = extractNoteMeta(relativePath, data, body, mtime);
+            return buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv(), meta);
           } catch (err) {
             console.error(`Failed to process file ${filePath}:`, err);
             return null;

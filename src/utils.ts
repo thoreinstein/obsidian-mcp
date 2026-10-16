@@ -115,3 +115,16 @@ export function applyFrontmatterUpdate(fileContent: string, update: FrontmatterU
   }
   return matter.stringify(parsed.content, parsed.data);
 }
+
+/**
+ * One-line label for a RAG hit: top-level folder, date, status, and type.
+ * Lets the caller tell an archived proposal from a live note without opening it.
+ */
+export function formatResultMeta(r: { path: string; date?: string; status?: string; type?: string }): string {
+  const folder = r.path.includes('/') ? r.path.split('/')[0] : '(root)';
+  const parts = [folder];
+  if (r.date) parts.push(r.date);
+  if (r.status) parts.push(`status: ${r.status}`);
+  if (r.type) parts.push(`type: ${r.type}`);
+  return parts.join(' · ');
+}

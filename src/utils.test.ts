@@ -6,6 +6,7 @@ import {
   replaceInNote,
   stripHeadingFromLink,
   applyFrontmatterUpdate,
+  formatResultMeta,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -68,5 +69,15 @@ describe('applyFrontmatterUpdate', () => {
     const content = '---\nstatus: draft\nauthor: thor\n---\n# Title\n';
     const result = applyFrontmatterUpdate(content, { updates: { status: 'published' } });
     expect(matter(result).data.author).toBe('thor');
+  });
+});
+
+describe('formatResultMeta', () => {
+  it('joins folder, date, status, type', () => {
+    expect(formatResultMeta({ path: 'archive/p/x.md', date: '2025-03-02', status: 'proposal', type: 'plan' }))
+      .toBe('archive · 2025-03-02 · status: proposal · type: plan');
+  });
+  it('omits empty fields and labels root notes', () => {
+    expect(formatResultMeta({ path: 'Home.md', date: '', status: '' })).toBe('(root)');
   });
 });

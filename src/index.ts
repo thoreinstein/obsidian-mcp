@@ -36,7 +36,7 @@ import * as os from 'os';
 import { glob } from 'glob';
 import matter from 'gray-matter';
 import { VaultIndexer } from './rag/store.js';
-import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink } from './utils.js';
+import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta } from './utils.js';
 
 let VAULT_PATH: string | null = process.env.OBSIDIAN_VAULT_PATH || null;
 const indexer = new VaultIndexer();
@@ -214,7 +214,7 @@ async function readStdin(): Promise<string> {
             const query = String(parsedArgs.query);
             const limit = Number(parsedArgs.limit) || 5;
             const res = await indexer.search(query, limit);
-            result = res.map((r: any) => `File: ${r.path}\nContent: ${r.text}`).join('\n---\n');
+            result = res.map((r: any) => `File: ${r.path}\nMeta: ${formatResultMeta(r)}\nContent: ${r.text}`).join('\n---\n');
         } else if (toolName === 'obsidian_get_backlinks') {
             const vp = getVaultPath(parsedArgs.vault_path);
             const target = String(parsedArgs.file_name).replace(/\.md$/i, '');
@@ -723,7 +723,7 @@ async function readStdin(): Promise<string> {
           const limit = Number(args?.limit) || 5;
           const results = await indexer.search(query, limit);
           const formatted = results.map((r: any) =>
-              `---\nFile: ${r.path}\nRelevance: ${r._distance}\nContent: ${r.text}\n---`
+              `---\nFile: ${r.path}\nMeta: ${formatResultMeta(r)}\nRelevance: ${r._distance}\nContent: ${r.text}\n---`
           ).join('\n');
           return { content: [{ type: 'text', text: formatted }] };
       }
