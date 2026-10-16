@@ -152,17 +152,21 @@ export function buildEmbeddingInputs(relativePath: string, body: string, options
   for (const section of splitByHeadings(body)) {
     const rawSegments: string[] = [];
     const paragraphs = section.text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
-    for (const rawParagraph of paragraphs) {
-      const paragraph = rawParagraph.trim();
-      if (paragraph.length < minChunkChars) continue;
-      for (const segment of splitTextForEmbedding(paragraph, maxChunkChars)) {
-        if (segment.length >= minChunkChars) rawSegments.push(segment);
+    for (let p = 0; p < paragraphs.length; p++) {
+      const paragraph = paragraphs[p].trim();
+      // The heading line used to sit in the first paragraph, so it counts toward the minimum length.
+      const bonus = p === 0 ? section.heading.length : 0;
+      if (paragraph.length + bonus < minChunkChars) continue;
+      const segments = splitTextForEmbedding(paragraph, maxChunkChars);
+      for (const segment of segments) {
+        if (segment.length + (segments.length === 1 ? bonus : 0) >= minChunkChars) rawSegments.push(segment);
       }
     }
 
     // Embed each chunk with its note's title, heading path and path so generic chunks
     // (checklists, boilerplate sections) are anchored to where they came from.
-    const base = noteMeta.title ? `${noteMeta.title}${section.heading ? ` > ${section.heading}` : ''} (${relativePath})` : relativePath;
+    const label = [noteMeta.title, section.heading].filter(Boolean).join(' > ');
+    const base = label ? `${label} (${relativePath})` : relativePath;
     for (const text of mergeSegmentsForEmbedding(rawSegments, targetChunkChars)) {
       chunkMetadata.push({
         id: md5(`${relativePath}-${chunkMetadata.length}`),

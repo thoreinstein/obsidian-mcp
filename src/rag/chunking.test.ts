@@ -48,3 +48,18 @@ describe('heading-aware chunking', () => {
     expect(textsToEmbed[0].startsWith('Title > A (x.md)')).toBe(true);
   });
 });
+
+describe('heading-aware chunking edge cases', () => {
+  it('keeps the heading in the embed header when the note has no title', () => {
+    const { textsToEmbed } = buildEmbeddingInputs('x.md', '# A\n' + 'a'.repeat(60));
+    expect(textsToEmbed[0].startsWith('A (x.md)')).toBe(true);
+    expect(buildEmbeddingInputs('x.md', 'a'.repeat(60)).textsToEmbed[0].startsWith('x.md\n\n')).toBe(true);
+  });
+
+  it('keeps short sections whose heading plus body reach the minimum', () => {
+    const { chunkMetadata } = buildEmbeddingInputs('x.md', '# Status\nBlocked on the vendor', { minChunkChars: 25 });
+    expect(chunkMetadata).toHaveLength(1);
+    expect(chunkMetadata[0].heading).toBe('Status');
+    expect(chunkMetadata[0].text).toBe('Blocked on the vendor');
+  });
+});
