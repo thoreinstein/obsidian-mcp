@@ -3,7 +3,7 @@ import * as path from 'path';
 import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
-import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath } from './utils.js';
+import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -92,11 +92,14 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_search_notes',
-    description: 'Search for notes containing specific text (simple text match).',
+    description: 'Grep the vault: returns path:line: text for each matching line (case-insensitive), plus filename matches.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Text to search for' },
+        regex: { type: 'boolean', description: 'Treat query as a regular expression (default false)' },
+        folder: { type: 'string', description: 'Limit search to this vault subfolder' },
+        limit: { type: 'number', description: 'Max matching lines to return (default 50)' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
       required: ['query'],
@@ -305,20 +308,24 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_search_notes': {
       const vp = vaultArg();
-      const query = String(args.query).toLowerCase();
-      const files = await glob('**/*.md', { cwd: vp });
-      const matches: string[] = [];
+      const re = compileSearch(String(args.query), isTrue(args.regex));
+      const limit = Number(args.limit) || 50;
+      const folder = args.folder ? String(args.folder) : undefined;
+      const files = (await glob(listNotesPattern(folder), { cwd: vp })).sort();
+      const out: string[] = [];
+      let shown = 0, extra = 0;
+      const extraFiles = new Set<string>();
       for (const f of files) {
-        if (f.toLowerCase().includes(query)) {
-          matches.push(f + ' (Filename match)'); continue;
+        if (re.test(f)) out.push(`${f} (filename match)`);
+        let content: string;
+        try { content = await fs.readFile(path.join(vp, f), 'utf-8'); } catch { continue; }
+        for (const m of findMatches(content, re, {})) {
+          if (shown < limit) { out.push(`${f}:${m.line}: ${m.text}`); shown++; }
+          else { extra++; extraFiles.add(f); }
         }
-        try {
-          const content = await fs.readFile(path.join(vp, f), 'utf-8');
-          if (content.toLowerCase().includes(query)) matches.push(f);
-        } catch { }
-        if (matches.length >= 20) break;
       }
-      return matches.join('\n');
+      if (extra) out.push(`…truncated: ${extra} more matching lines in ${extraFiles.size} files`);
+      return out.join('\n');
     }
     case 'obsidian_rag_index': {
       const vp = vaultArg();

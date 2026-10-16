@@ -15,6 +15,7 @@ import {
   scanHeadings,
   buildWhereClause,
   rrfMerge,
+  findMatches,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -173,5 +174,21 @@ describe('rrfMerge', () => {
   it('ranks items found by both lists first', () => {
     const [a, b, c] = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     expect(rrfMerge([[a, b], [b, c]]).map(x => x.id)).toEqual(['b', 'a', 'c']);
+  });
+});
+
+describe('findMatches', () => {
+  it('matches case-insensitively with 1-based line numbers', () => {
+    expect(findMatches('a\nFoo bar\nfoo', 'foo', {}).map(m => m.line)).toEqual([2, 3]);
+  });
+  it('supports regex mode', () => {
+    expect(findMatches('x1\ny22', '\\d{2}', { regex: true })).toEqual([{ line: 2, text: 'y22' }]);
+  });
+  it('throws on invalid regex', () => {
+    expect(() => findMatches('x', '(', { regex: true })).toThrow(/Invalid regex/);
+  });
+  it('trims and caps text at 200 chars', () => {
+    const [m] = findMatches('   ' + 'a'.repeat(300), 'a', {});
+    expect(m.text).toBe('a'.repeat(200));
   });
 });

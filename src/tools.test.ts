@@ -63,6 +63,21 @@ describe('runTool', () => {
   });
 });
 
+describe("obsidian_search_notes", () => {
+  it("returns path:line: text, scopes by folder, and truncates at limit", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "one\n  Hello a  \nhello again");
+    await fs.writeFile(path.join(vp, "sub", "b.md"), "hello b");
+    const all = await runTool("obsidian_search_notes", { query: "hello" }, ctx);
+    expect(all.split("\n").sort()).toEqual(["a.md:2: Hello a", "a.md:3: hello again", "sub/b.md:1: hello b"]);
+    const scoped = await runTool("obsidian_search_notes", { query: "hello", folder: "sub" }, ctx);
+    expect(scoped).toBe("sub/b.md:1: hello b");
+    const capped = await runTool("obsidian_search_notes", { query: "hello", limit: 1 }, ctx);
+    const lines = capped.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe("…truncated: 2 more matching lines in 2 files");
+  });
+});
+
 describe('TOOL_DEFINITIONS', () => {
   it('has unique names', () => {
     const names = TOOL_DEFINITIONS.map(t => t.name);

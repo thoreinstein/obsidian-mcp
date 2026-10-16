@@ -261,3 +261,26 @@ export function rrfMerge<T extends { id: string }>(lists: T[][], k = 60): T[] {
   }
   return [...scored.values()].sort((a, b) => b.score - a.score).map(e => e.item);
 }
+
+/** Build the case-insensitive matcher for a search query. Throws `Invalid regex: <msg>` on bad regex. */
+export function compileSearch(query: string, regex?: boolean): RegExp {
+  try {
+    return new RegExp(regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  } catch (e) {
+    throw new Error(`Invalid regex: ${(e as Error).message}`);
+  }
+}
+
+/** Find matching lines (1-based). Pass a precompiled RegExp to avoid rebuilding it per file. */
+export function findMatches(
+  content: string,
+  query: string | RegExp,
+  opts: { regex?: boolean }
+): Array<{ line: number; text: string }> {
+  const re = typeof query === 'string' ? compileSearch(query, opts.regex) : query;
+  const out: Array<{ line: number; text: string }> = [];
+  content.split('\n').forEach((l, i) => {
+    if (re.test(l)) out.push({ line: i + 1, text: l.trim().slice(0, 200) });
+  });
+  return out;
+}
