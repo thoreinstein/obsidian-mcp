@@ -3,7 +3,7 @@ import * as path from 'path';
 import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
-import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta } from './utils.js';
+import { extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -288,14 +288,13 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_get_daily_note': {
       const vp = vaultArg();
-      const dateStr = new Date().toISOString().split('T')[0];
-      const dailyFolder = (await fs.stat(path.join(vp, 'Daily Notes')).catch(() => null)) ? 'Daily Notes' : '';
-      const filePath = path.join(vp, dailyFolder, `${dateStr}.md`);
+      const filePath = path.join(vp, await resolveDailyNotePath(vp, new Date()));
+      const title = path.basename(filePath, '.md');
       try {
         return await fs.readFile(filePath, 'utf-8');
       } catch {
         await fs.mkdir(path.dirname(filePath), { recursive: true });
-        const content = `# ${dateStr}\n\n`;
+        const content = `# ${title}\n\n`;
         await fs.writeFile(filePath, content, 'utf-8');
         return content;
       }
@@ -406,15 +405,14 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const heading = String(args.heading);
       const content = String(args.content);
-      const dateStr = new Date().toISOString().split('T')[0];
-      const dailyFolder = (await fs.stat(path.join(vp, 'Daily Notes')).catch(() => null)) ? 'Daily Notes' : '';
-      const filePath = path.join(vp, dailyFolder, `${dateStr}.md`);
+      const filePath = path.join(vp, await resolveDailyNotePath(vp, new Date()));
+      const title = path.basename(filePath, '.md');
       let fileContent = '';
       try {
         fileContent = await fs.readFile(filePath, 'utf-8');
       } catch {
         await fs.mkdir(path.dirname(filePath), { recursive: true });
-        fileContent = `# ${dateStr}\n\n`;
+        fileContent = `# ${title}\n\n`;
       }
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const entry = `\n- [${timestamp}] ${content}`;

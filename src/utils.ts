@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import matter from 'gray-matter';
 
 /**
@@ -143,4 +144,46 @@ export function dedupeByPath<T extends { path: string }>(hits: T[], limit: numbe
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/**
+ * Format a date (local time) using an Obsidian daily-note format.
+ * Supports YYYY YY MM M DD D and [literal] escapes.
+ */
+export function formatDailyDate(date: Date, format: string): string {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const tokens: Record<string, string> = {
+    YYYY: String(y),
+    YY: pad(y % 100),
+    MM: pad(m),
+    M: String(m),
+    DD: pad(d),
+    D: String(d),
+  };
+  return format.replace(/\[([^\]]*)\]|([A-Za-z]+)/g, (_m, literal: string | undefined, tok: string | undefined) => {
+    if (literal !== undefined) return literal;
+    const out = tokens[tok as string];
+    if (out === undefined) throw new Error(`Unsupported daily note format token "${tok}"`);
+    return out;
+  });
+}
+
+/**
+ * Vault-relative daily note path from .obsidian/daily-notes.json
+ * (defaults: folder '', format YYYY-MM-DD).
+ */
+export async function resolveDailyNotePath(vaultPath: string, date: Date): Promise<string> {
+  let folder = '';
+  let format = 'YYYY-MM-DD';
+  try {
+    const cfg = JSON.parse(await fs.readFile(path.join(vaultPath, '.obsidian', 'daily-notes.json'), 'utf-8'));
+    if (typeof cfg.folder === 'string') folder = cfg.folder;
+    if (typeof cfg.format === 'string' && cfg.format) format = cfg.format;
+  } catch {
+    // missing or unreadable config: use defaults
+  }
+  return path.posix.join(folder, formatDailyDate(date, format) + '.md');
 }

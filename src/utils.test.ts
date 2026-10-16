@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as path from 'path';
+import * as fs from 'fs/promises';
+import * as os from 'os';
 import matter from 'gray-matter';
 import {
   listNotesPattern,
@@ -8,6 +10,8 @@ import {
   applyFrontmatterUpdate,
   formatResultMeta,
   dedupeByPath,
+  formatDailyDate,
+  resolveDailyNotePath,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -90,5 +94,34 @@ describe('dedupeByPath', () => {
   });
   it('returns fewer than limit when there are not enough distinct paths', () => {
     expect(dedupeByPath([{ path: 'a' }, { path: 'a' }], 5)).toEqual([{ path: 'a' }]);
+  });
+});
+
+describe('formatDailyDate', () => {
+  it('uses local time and nested format', () => {
+    expect(formatDailyDate(new Date(2026, 9, 16, 23, 30), 'YYYY/MM/YYYY-MM-DD')).toBe('2026/10/2026-10-16');
+  });
+  it('supports short tokens', () => {
+    expect(formatDailyDate(new Date(2026, 0, 5), 'YY-M-D')).toBe('26-1-5');
+  });
+  it('supports [literal] escapes', () => {
+    expect(formatDailyDate(new Date(2026, 0, 5), '[Journal] YYYY')).toBe('Journal 2026');
+  });
+  it('throws on unsupported tokens', () => {
+    expect(() => formatDailyDate(new Date(2026, 0, 5), 'dddd YYYY')).toThrow(/Unsupported daily note format token "dddd"/);
+  });
+});
+
+describe('resolveDailyNotePath', () => {
+  const d = new Date(2026, 9, 16, 23, 30);
+  it('reads folder and format from .obsidian/daily-notes.json', async () => {
+    const vp = await fs.mkdtemp(path.join(os.tmpdir(), 'daily-'));
+    await fs.mkdir(path.join(vp, '.obsidian'));
+    await fs.writeFile(path.join(vp, '.obsidian', 'daily-notes.json'), JSON.stringify({ folder: 'Daily', format: 'YYYY/MM/YYYY-MM-DD' }));
+    expect(await resolveDailyNotePath(vp, d)).toBe('Daily/2026/10/2026-10-16.md');
+  });
+  it('defaults when no config', async () => {
+    const vp = await fs.mkdtemp(path.join(os.tmpdir(), 'daily-'));
+    expect(await resolveDailyNotePath(vp, d)).toBe('2026-10-16.md');
   });
 });
