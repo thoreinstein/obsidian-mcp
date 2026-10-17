@@ -391,7 +391,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       let shown = 0, extra = 0;
       const extraFiles = new Set<string>();
       for (const f of files) {
-        if (re.test(f)) out.push(`${f} (filename match)`);
+        if (re.test(path.basename(f))) {
+          if (shown < limit) { out.push(`${f} (filename match)`); shown++; }
+          else { extra++; extraFiles.add(f); }
+        }
         let content: string;
         try { content = await fs.readFile(path.join(vp, f), 'utf-8'); } catch { continue; }
         for (const m of findMatches(content, re, {})) {

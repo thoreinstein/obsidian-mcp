@@ -122,6 +122,20 @@ describe("obsidian_search_notes", () => {
   });
 });
 
+describe("obsidian_search_notes filename matches", () => {
+  it("counts filename hits toward limit and matches basename only", async () => {
+    await fs.mkdir(path.join(vp, "foo"));
+    for (let i = 0; i < 30; i++) await fs.writeFile(path.join(vp, "foo", `foo-${i}.md`), "x");
+    await fs.writeFile(path.join(vp, "foo", "other.md"), "x");
+    const out = await runTool("obsidian_search_notes", { query: "foo", limit: 5 }, ctx);
+    const lines = out.split("\n");
+    expect(lines).toHaveLength(6);
+    expect(lines.slice(0, 5).every(l => l.endsWith("(filename match)"))).toBe(true);
+    expect(out).not.toContain("other.md");
+    expect(lines[5]).toBe("…truncated: 25 more matching lines in 25 files");
+  });
+});
+
 describe('TOOL_DEFINITIONS', () => {
   it('has unique names', () => {
     const names = TOOL_DEFINITIONS.map(t => t.name);
