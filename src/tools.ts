@@ -445,8 +445,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         const key = path.basename(f, '.md').toLowerCase();
         if (!byName.has(key)) byName.set(key, f);
       }
+      const byPath = new Map(allFiles.map(f => [f.toLowerCase(), f]));
+      const resolveLink = (t: string) => byName.get(t.toLowerCase()) ?? (t.includes('/') ? byPath.get(`${t}.md`.toLowerCase()) : undefined);
       const targets = [...new Set(extractWikilinks(content).map(stripHeadingFromLink).filter(Boolean))];
-      const out = targets.map(t => `- [[${t}]] → ${byName.get(t.toLowerCase()) ?? '(unresolved)'}`);
+      const out = targets.map(t => `- [[${t}]] → ${resolveLink(t) ?? '(unresolved)'}`);
       const backlinks = await findBacklinks(vp, path.basename(filePath, '.md'));
       const similar = await ctx.indexer.similarNotes(filePath, limit);
       const list = (lines: string[]) => (lines.length ? lines.join('\n') : '(none)');

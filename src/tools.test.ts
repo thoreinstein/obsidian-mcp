@@ -157,6 +157,16 @@ describe('obsidian_get_related', () => {
   });
 });
 
+describe('obsidian_get_related path-style links', () => {
+  it('resolves [[folder/note]] case-insensitively', async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), 'see [[Sub/B]] and [[nope/b]]');
+    ctx.indexer = { similarNotes: vi.fn(async () => []) } as any;
+    const out = await runTool('obsidian_get_related', { file_path: 'a.md' }, ctx);
+    expect(out).toContain('- [[Sub/B]] → sub/b.md');
+    expect(out).toContain('- [[nope/b]] → (unresolved)');
+  });
+});
+
 describe('frontmatter schema enforcement', () => {
   const schema = { exclude: ['engram/'], rules: [{ prefix: '', required: ['type'], allowed: { type: ['plan', 'pattern'] } }] };
   beforeEach(async () => {
