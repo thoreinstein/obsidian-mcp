@@ -104,17 +104,19 @@ type FrontmatterUpdate =
 /** Apply a single key/value or a batch of updates to YAML frontmatter. Returns updated file content. */
 export function applyFrontmatterUpdate(fileContent: string, update: FrontmatterUpdate): string {
   const parsed = matter(fileContent);
+  // gray-matter caches parsed.data by content; mutate a copy so a rejected update can't poison later reads.
+  const data = { ...parsed.data };
   if (update.updates) {
     for (const [k, v] of Object.entries(update.updates)) {
       if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
-      parsed.data[k] = v;
+      data[k] = v;
     }
   } else {
     let value: unknown = update.value;
     try { value = JSON.parse(String(update.value)); } catch { /* use as string */ }
-    parsed.data[update.key] = value;
+    data[update.key] = value;
   }
-  return matter.stringify(parsed.content, parsed.data);
+  return matter.stringify(parsed.content, data);
 }
 
 /**

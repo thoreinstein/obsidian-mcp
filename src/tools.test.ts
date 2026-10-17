@@ -157,6 +157,15 @@ describe('frontmatter schema enforcement', () => {
     expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe(original);
   });
 
+  it('rejected update does not leak into later frontmatter reads', async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), '---\ntype: plan\n---\nbody\n');
+    await runTool('obsidian_read_note', { file_path: 'a.md', frontmatter_only: true }, ctx);
+    await expect(runTool('obsidian_update_frontmatter', { file_path: 'a.md', key: 'type', value: 'adr' }, ctx)).rejects.toThrow();
+    const fm = await runTool('obsidian_read_note', { file_path: 'a.md', frontmatter_only: true }, ctx);
+    expect(fm).toContain('type: plan');
+    expect(fm).not.toContain('adr');
+  });
+
   it('create_note rejects invalid content and writes nothing', async () => {
     await expect(runTool('obsidian_create_note', { file_path: 'new.md', content: 'no fm' }, ctx))
       .rejects.toThrow(/missing required field "type"/);
