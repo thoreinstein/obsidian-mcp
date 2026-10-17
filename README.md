@@ -13,9 +13,17 @@ MCP server for Obsidian vault integration with local RAG (semantic search) — e
 
 ## Tools
 
-`obsidian_list_notes`, `obsidian_read_note`, `obsidian_search_notes`, `obsidian_rag_index`, `obsidian_rag_query`, `obsidian_set_vault`, `obsidian_create_note`, `obsidian_append_note`, `obsidian_get_daily_note`, `obsidian_get_backlinks`, `obsidian_get_links`, `obsidian_move_note`, `obsidian_update_frontmatter`, `obsidian_append_daily_log`, `obsidian_replace_section`, `obsidian_insert_at_heading`, `obsidian_replace_in_note`, `obsidian_get_broken_links`, `validate_frontmatter`
+`obsidian_list_notes`, `obsidian_read_note`, `obsidian_search_notes`, `obsidian_rag_index`, `obsidian_rag_query`, `obsidian_set_vault`, `obsidian_create_note`, `obsidian_append_note`, `obsidian_get_daily_note`, `obsidian_get_backlinks`, `obsidian_get_links`, `obsidian_move_note`, `obsidian_update_frontmatter`, `obsidian_append_daily_log`, `obsidian_replace_section`, `obsidian_insert_at_heading`, `obsidian_replace_in_note`, `obsidian_get_broken_links`, `obsidian_get_note_outline`, `obsidian_get_related`, `validate_frontmatter`
 
-Each tool is also callable one-shot from the CLI: `node dist/index.js obsidian_rag_index`.
+Each tool is also callable one-shot from the CLI: `node dist/index.js obsidian_rag_index`. `obsidian_rag_eval --file <queries.json>` is CLI-only and scores retrieval against a set of queries.
+
+Notable parameters:
+
+- `obsidian_rag_query`: `folder`, `type`, `status`, `after` filter results; each hit is labelled with folder, date, status and type
+- `obsidian_read_note`: `heading` returns one section, `frontmatter_only` returns just the YAML
+- `obsidian_search_notes`: `regex`, `folder`, `limit` (filename and content hits both count toward the limit)
+- `obsidian_get_note_outline`: frontmatter, headings, wikilinks and word count
+- `obsidian_get_related`: outgoing links, backlinks and semantically similar notes
 
 ## Install
 
@@ -48,6 +56,25 @@ Vault path resolution order:
 2. `OBSIDIAN_VAULT_PATH` env var
 3. Config file (see below)
 
+## Vault files
+
+The server reads these optional files from the vault; nothing vault-specific is hard-coded.
+
+- `.obsidian/daily-notes.json`: `folder` and `format` decide where the daily note lives
+- `AGENTS.md`: appended to the server instructions (truncated if long) and served in full as the `obsidian://vault-guide` resource
+- `.obsidian-mcp-schema.json`: frontmatter rules enforced on create and frontmatter update, and by `validate_frontmatter`:
+
+```json
+{
+  "exclude": ["engram/"],
+  "rules": [
+    { "prefix": "Engineering/", "required": ["type"], "allowed": { "type": ["plan", "pattern"] } }
+  ]
+}
+```
+
+`exclude` lists path prefixes skipped by validation. The first rule whose `prefix` matches the path applies (`""` matches all), with `required` fields and `allowed` values per field.
+
 ## Data paths
 
 Canonical, shared by all clients:
@@ -57,6 +84,8 @@ Canonical, shared by all clients:
 - File-hash cache: `~/.config/obsidian-mcp/file-hashes.json`
 
 Override the directory with `OBSIDIAN_MCP_DATA_DIR`, the config file with `OBSIDIAN_MCP_CONFIG`.
+
+The embedding model defaults to `Xenova/all-MiniLM-L6-v2`; set `OBSIDIAN_RAG_MODEL` to use another. Non-default models get their own index (`lancedb-<model>/`, `file-hashes-<model>.json`, with `/` in the model name replaced by `__`), so switching models never mixes embeddings. Reindex after switching.
 
 The index rebuilds incrementally from scratch on first use, so migrating from the old plugin locations needs no manual step.
 
