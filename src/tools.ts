@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
-import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, validateFrontmatter } from './utils.js';
+import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, validateFrontmatter, resolveVaultPath } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -322,13 +322,14 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_list_notes': {
       const vp = vaultArg();
+      if (args.subfolder) await resolveVaultPath(vp, String(args.subfolder));
       const pattern = listNotesPattern(args.subfolder ? String(args.subfolder) : undefined);
       const files = await glob(pattern, { cwd: vp });
       return JSON.stringify(files.slice(0, 100), null, 2) + (files.length > 100 ? `\n...and ${files.length - 100} more.` : '');
     }
     case 'obsidian_read_note': {
       const vp = vaultArg();
-      const content = await fs.readFile(path.join(vp, String(args.file_path)), 'utf-8');
+      const content = await fs.readFile(await resolveVaultPath(vp, String(args.file_path)), 'utf-8');
       if (args.frontmatter_only) {
         const data = matter(content).data;
         return Object.keys(data).length ? matter.stringify('', data) : '';
@@ -347,12 +348,12 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_get_note_outline': {
       const vp = vaultArg();
-      const content = await fs.readFile(path.join(vp, String(args.file_path)), 'utf-8');
+      const content = await fs.readFile(await resolveVaultPath(vp, String(args.file_path)), 'utf-8');
       return JSON.stringify(noteOutline(content), null, 2);
     }
     case 'obsidian_create_note': {
       const vp = vaultArg();
-      const filePath = path.join(vp, String(args.file_path));
+      const filePath = await resolveVaultPath(vp, String(args.file_path));
       const content = String(args.content || '');
       await assertValidFrontmatter(vp, String(args.file_path), content);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -362,7 +363,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_append_note': {
       const vp = vaultArg();
-      const filePath = path.join(vp, String(args.file_path));
+      const filePath = await resolveVaultPath(vp, String(args.file_path));
       const content = String(args.content || '');
       await fs.appendFile(filePath, '\n' + content, 'utf-8');
       ctx.reindex(vp, String(args.file_path));
@@ -370,7 +371,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_get_daily_note': {
       const vp = vaultArg();
-      const filePath = path.join(vp, await resolveDailyNotePath(vp, new Date()));
+      const filePath = await resolveVaultPath(vp, await resolveDailyNotePath(vp, new Date()));
       const title = path.basename(filePath, '.md');
       try {
         return await fs.readFile(filePath, 'utf-8');
@@ -386,6 +387,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const re = compileSearch(String(args.query), isTrue(args.regex));
       const limit = Number(args.limit) || 50;
       const folder = args.folder ? String(args.folder) : undefined;
+      if (folder) await resolveVaultPath(vp, folder);
       const files = (await glob(listNotesPattern(folder), { cwd: vp })).sort();
       const out: string[] = [];
       let shown = 0, extra = 0;
@@ -408,6 +410,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_rag_index': {
       const vp = vaultArg();
       const fp = args.file_path ? String(args.file_path) : null;
+      if (fp) await resolveVaultPath(vp, fp);
       const force = isTrue(args.force_reindex) || isTrue(args.force);
       const result = fp ? await ctx.indexer.indexFile(vp, fp) : await ctx.indexer.indexVault(vp, force);
       return JSON.stringify(result);
@@ -438,7 +441,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const filePath = String(args.file_path);
       const limit = Number(args.limit) || 5;
-      const content = await fs.readFile(path.join(vp, filePath), 'utf-8');
+      const content = await fs.readFile(await resolveVaultPath(vp, filePath), 'utf-8');
       const allFiles = await glob('**/*.md', { cwd: vp });
       const byName = new Map<string, string>();
       for (const f of allFiles) {
@@ -460,13 +463,13 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_get_links': {
       const vp = vaultArg();
-      const content = await fs.readFile(path.join(vp, String(args.file_path)), 'utf-8');
+      const content = await fs.readFile(await resolveVaultPath(vp, String(args.file_path)), 'utf-8');
       return JSON.stringify(extractWikilinks(content), null, 2);
     }
     case 'obsidian_move_note': {
       const vp = vaultArg();
-      const source = path.join(vp, String(args.source_path));
-      const dest = path.join(vp, String(args.dest_path));
+      const source = await resolveVaultPath(vp, String(args.source_path));
+      const dest = await resolveVaultPath(vp, String(args.dest_path));
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(source, dest);
       ctx.reindex(vp, String(args.dest_path), String(args.source_path));
@@ -474,7 +477,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_update_frontmatter': {
       const vp = vaultArg();
-      const filePath = path.join(vp, String(args.file_path));
+      const filePath = await resolveVaultPath(vp, String(args.file_path));
       const fileContent = await fs.readFile(filePath, 'utf-8');
       // CLI passes `updates` as a JSON string; MCP passes an object.
       const rawUpdates = typeof args.updates === 'string' ? JSON.parse(args.updates) : args.updates;
@@ -489,7 +492,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_replace_section': {
       const vp = vaultArg();
-      const filePath = path.join(vp, String(args.file_path));
+      const filePath = await resolveVaultPath(vp, String(args.file_path));
       const heading = String(args.heading);
       const content = String(args.content);
       const fileContent = await fs.readFile(filePath, 'utf-8');
@@ -501,7 +504,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_insert_at_heading': {
       const vp = vaultArg();
-      const filePath = path.join(vp, String(args.file_path));
+      const filePath = await resolveVaultPath(vp, String(args.file_path));
       const heading = String(args.heading);
       const content = String(args.content);
       const position = (args.position || 'end') as 'beginning' | 'end';
@@ -515,7 +518,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const heading = String(args.heading);
       const content = String(args.content);
-      const filePath = path.join(vp, await resolveDailyNotePath(vp, new Date()));
+      const filePath = await resolveVaultPath(vp, await resolveDailyNotePath(vp, new Date()));
       const title = path.basename(filePath, '.md');
       let fileContent = '';
       try {
@@ -538,7 +541,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_replace_in_note': {
       const vp = vaultArg();
-      const filePath = path.join(vp, String(args.file_path));
+      const filePath = await resolveVaultPath(vp, String(args.file_path));
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const updated = replaceInNote(fileContent, String(args.old_text), String(args.new_text ?? ''));
       await fs.writeFile(filePath, updated, 'utf-8');
@@ -547,6 +550,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_get_broken_links': {
       const vp = vaultArg();
+      if (args.subfolder) await resolveVaultPath(vp, String(args.subfolder));
       const pattern = listNotesPattern(args.subfolder ? String(args.subfolder) : undefined);
       const files = await glob(pattern, { cwd: vp });
       const allFiles = await glob('**/*.md', { cwd: vp });

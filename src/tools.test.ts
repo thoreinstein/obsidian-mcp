@@ -202,3 +202,53 @@ describe('frontmatter schema enforcement', () => {
     await expect(fs.access(path.join(vp, 'ok.md'))).resolves.toBeUndefined();
   });
 });
+
+describe('vault path containment', () => {
+  let outside: string;
+  beforeEach(async () => {
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-outside-'));
+    await fs.writeFile(path.join(outside, 'secret.md'), 'outside content');
+    await fs.symlink(outside, path.join(vp, 'link'));
+  });
+  afterEach(async () => {
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+
+  const cases: Array<[string, (o: string) => string]> = [
+    ["../outside.md", () => "../outside.md"],
+    ["sub/../../outside.md", () => "sub/../../outside.md"],
+    ["absolute outside path", (o) => path.join(o, "secret.md")],
+    ["symlink inside vault", () => "link/secret.md"],
+  ];
+
+  for (const [label, mk] of cases) {
+    it(`read refuses ${label}`, async () => {
+      await expect(runTool("obsidian_read_note", { file_path: mk(outside) }, ctx)).rejects.toThrow("Path escapes vault");
+    });
+    it(`create refuses ${label}`, async () => {
+      await expect(runTool("obsidian_create_note", { file_path: mk(outside).replace("secret", "new"), content: "x" }, ctx)).rejects.toThrow("Path escapes vault");
+      await expect(fs.access(path.join(outside, "new.md"))).rejects.toThrow();
+    });
+    it(`move destination refuses ${label}`, async () => {
+      await expect(runTool("obsidian_move_note", { source_path: "a.md", dest_path: mk(outside).replace("secret", "moved") }, ctx)).rejects.toThrow("Path escapes vault");
+      await fs.access(path.join(vp, "a.md"));
+    });
+  }
+
+  it('move source refuses a path outside the vault', async () => {
+    await expect(runTool('obsidian_move_note', { source_path: '../outside.md', dest_path: 'x.md' }, ctx)).rejects.toThrow('Path escapes vault');
+  });
+  it('list_notes refuses an outside subfolder', async () => {
+    await expect(runTool('obsidian_list_notes', { subfolder: '..' }, ctx)).rejects.toThrow('Path escapes vault');
+  });
+  it('rag index_file refuses an outside path', async () => {
+    await expect(runTool('obsidian_rag_index', { file_path: '../outside.md' }, ctx)).rejects.toThrow('Path escapes vault');
+  });
+  it('still works for normal nested paths, including new files', async () => {
+    expect(await runTool('obsidian_read_note', { file_path: 'sub/b.md' }, ctx)).toBe('hello b');
+    await runTool('obsidian_create_note', { file_path: 'new/deep/c.md', content: 'c' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'new/deep/c.md'), 'utf-8')).toBe('c');
+    await runTool('obsidian_move_note', { source_path: 'new/deep/c.md', dest_path: 'moved/c.md' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'moved/c.md'), 'utf-8')).toBe('c');
+  });
+});

@@ -355,3 +355,30 @@ export function validateFrontmatter(filePath: string, content: string, schema: V
   }
   return errors;
 }
+
+const isInside = (root: string, p: string) => p === root || p.startsWith(root + path.sep);
+
+/**
+ * Resolve relPath against vaultRoot and refuse anything that lands outside it,
+ * lexically or via a symlink. For paths that don't exist yet, the nearest existing parent is checked.
+ */
+export async function resolveVaultPath(vaultRoot: string, relPath: string): Promise<string> {
+  const root = path.resolve(vaultRoot);
+  const target = path.resolve(root, relPath);
+  const escape = () => new Error(`Path escapes vault: ${relPath}`);
+  if (!isInside(root, target)) throw escape();
+  const realRoot = await fs.realpath(root);
+  let existing = target;
+  for (;;) {
+    try {
+      const real = await fs.realpath(existing);
+      if (!isInside(realRoot, real)) throw escape();
+      return target;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      const parent = path.dirname(existing);
+      if (parent === existing) return target;
+      existing = parent;
+    }
+  }
+}
