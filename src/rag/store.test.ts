@@ -9,11 +9,11 @@ let vault: string;
 let indexer: any;
 
 const NOTES: Record<string, string> = {
-  'tickets/fraas.md': '---\ntitle: Ticket notes\n---\n# Ticket\nInvestigated FRAAS-36446 where the tenant login loop broke after the upgrade.\n',
+  'tickets/abcd.md': '---\ntitle: Ticket notes\n---\n# Ticket\nInvestigated ABCD-24680 where the tenant login loop broke after the upgrade.\n',
   'working/plan.md': '---\ntype: plan\n---\n# Rollout plan\nSteps to roll the new search ranking out to every agent safely.\n',
   'Engineering/pattern.md': '---\ntype: pattern\n---\n# Retry pattern\nUse exponential backoff with jitter when calling flaky remote services.\n',
   // Distractors: look like the exact tokens to the embedding model but share no full-text token with them.
-  'tickets/near.md': '# FRAAS36445\nFRAAS36445 FRAAS36447 FRAAS36440 FRAAS36446X\n',
+  'tickets/near.md': '# ABCD24679\nABCD24679 ABCD24681 ABCD24670 ABCD24680X\n',
   'codes.md': '# Codes\nQXJ-UNIQ ZQX-UNIQ QXJ-UNIQ ZQX-UNIQ QXJ-UNIQ ZQX-UNIQ\n',
   // Folder names with LIKE/SQL metacharacters ('_' and "'") for the folder filter.
   'idx_team/a.md': '# Team A\nNotes from the team sync about the search ranking rollout.\n',
@@ -43,8 +43,8 @@ afterAll(async () => {
 
 describe('VaultIndexer.search (hybrid)', () => {
   it('ranks an exact token match first', async () => {
-    const hits = await indexer.search('FRAAS-36446');
-    expect(hits[0].path).toBe('tickets/fraas.md');
+    const hits = await indexer.search('ABCD-24680');
+    expect(hits[0].path).toBe('tickets/abcd.md');
   }, 120_000);
 
   it('runs full-text search on query-syntax characters without falling back', async () => {
@@ -112,8 +112,8 @@ describe('VaultIndexer.search (hybrid)', () => {
     for (const idx of indices) await table.dropIndex(idx.name);
     const res = await indexer.indexVault(vault);
     expect(res.message).toMatch(/up to date/);
-    const hits = await indexer.search('FRAAS-36446');
-    expect(hits[0].path).toBe('tickets/fraas.md');
+    const hits = await indexer.search('ABCD-24680');
+    expect(hits[0].path).toBe('tickets/abcd.md');
   }, 120_000);
 
   it('finds a token from a note added by indexFile', async () => {
