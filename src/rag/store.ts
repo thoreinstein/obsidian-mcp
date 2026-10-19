@@ -24,6 +24,15 @@ const DATA_DIR = process.env.OBSIDIAN_MCP_DATA_DIR || path.join(os.homedir(), '.
 const DB_PATH = path.join(DATA_DIR, `lancedb${MODEL_SLUG}`);
 const HASH_PATH = path.join(DATA_DIR, `file-hashes${MODEL_SLUG}.json`);
 
+// LanceDB keeps 7 days of versions by default; every write adds one, so the
+// index grows to many times its live size. Keep 1h so another client's
+// in-flight reads of a recent version still find their files.
+const VERSION_RETENTION_MS = 60 * 60 * 1000;
+
+function optimizeOptions() {
+  return { cleanupOlderThan: new Date(Date.now() - VERSION_RETENTION_MS) };
+}
+
 interface NoteChunk extends ChunkMetadata {
   vector: number[];
 }
@@ -131,7 +140,7 @@ export class VaultIndexer {
               await this.table.delete(`path = '${relativePath.replace(/'/g, "''")}'`);
               await this.table.add(chunkRows);
           }
-          await this.table.optimize();
+          await this.table.optimize(optimizeOptions());
           if (!(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
           console.error(`Indexed ${chunks.length} chunks for ${relativePath}.`);
           return { success: true, chunks: chunks.length };
@@ -378,7 +387,7 @@ export class VaultIndexer {
 
     // Compact fragments and clean up old versions to prevent stale references
     if (this.table) {
-      await this.table.optimize();
+      await this.table.optimize(optimizeOptions());
       if (!canIncremental || !(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
     }
 

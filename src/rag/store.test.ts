@@ -124,3 +124,24 @@ describe('VaultIndexer.search (hybrid)', () => {
     expect(hits[0].path).toBe('new.md');
   }, 120_000);
 });
+
+describe('VaultIndexer version cleanup', () => {
+  it('prunes versions older than the retention window on write', async () => {
+    const lancedb = await import('@lancedb/lancedb');
+    const table = await (await lancedb.connect(path.join(dataDir, 'lancedb'))).openTable('notes');
+    expect((await table.listVersions()).length).toBeGreaterThan(2);
+    const realNow = Date.now();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(realNow + 2 * 60 * 60 * 1000);
+    try {
+      await fs.writeFile(path.join(vault, 'prune.md'), '# Prune\nA note written to trigger version cleanup. Ref PRUNE-UNIQ.\n');
+      const res = await indexer.indexFile(vault, 'prune.md');
+      expect(res.success).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    await table.checkoutLatest();
+    expect((await table.listVersions()).length).toBeLessThanOrEqual(2);
+    const hits = await indexer.search('PRUNE-UNIQ');
+    expect(hits[0].path).toBe('prune.md');
+  }, 120_000);
+});
