@@ -276,6 +276,7 @@ describe('readonly paths', () => {
     await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ readonly: ['engram/'], rules: [] }));
     await fs.mkdir(path.join(vp, 'engram'));
     await fs.writeFile(path.join(vp, 'engram', 'm.md'), original);
+    await fs.symlink(path.join(vp, 'engram'), path.join(vp, 'alias'));
   });
 
   const writes: Array<[string, Record<string, unknown>]> = [
@@ -288,6 +289,10 @@ describe('readonly paths', () => {
     ['obsidian_move_note', { source_path: 'engram/m.md', dest_path: 'm.md' }],
     ['obsidian_move_note', { source_path: 'a.md', dest_path: 'engram/a.md' }],
     ['obsidian_create_note', { file_path: 'sub/../engram/sneaky.md', content: 'x' }],
+    ['obsidian_create_note', { file_path: 'Engram/case.md', content: 'x' }],
+    ['obsidian_append_note', { file_path: 'ENGRAM/m.md', content: 'x' }],
+    ['obsidian_create_note', { file_path: 'alias/via-link.md', content: 'x' }],
+    ['obsidian_append_note', { file_path: 'alias/m.md', content: 'x' }],
   ];
   for (const [tool, args] of writes) {
     it(`${tool} refuses ${JSON.stringify(args)}`, async () => {

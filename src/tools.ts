@@ -330,14 +330,28 @@ async function assertValidFrontmatter(vp: string, relPath: string, content: stri
 const vaultRel = (vp: string, abs: string) => path.relative(path.resolve(vp), abs).split(path.sep).join('/');
 
 /**
- * resolveVaultPath, then refuse paths under the schema's `readonly` prefixes.
- * The prefix check runs on the normalized vault-relative path, so `sub/../engram/x.md` can't slip past `engram/`.
+ * True if `abs` falls under one of the `readonly` prefixes. Compares the real path (symlinks resolved through the
+ * nearest existing ancestor) relative to the real vault root, case-insensitively, so `Engram/x.md`, `sub/../engram/x.md`
+ * or a symlink into `engram/` can't slip past `engram/`.
  */
+async function isReadonlyPath(vp: string, abs: string, readonly: string[]): Promise<boolean> {
+  if (readonly.length === 0) return false;
+  let existing = abs, rest = '';
+  for (;;) {
+    try { existing = await fs.realpath(existing); break; } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT' || path.dirname(existing) === existing) throw e;
+      rest = path.join(path.basename(existing), rest);
+      existing = path.dirname(existing);
+    }
+  }
+  const rel = vaultRel(await fs.realpath(vp), path.join(existing, rest)).toLowerCase();
+  return readonly.some(p => rel.startsWith(p.toLowerCase()));
+}
+
+/** resolveVaultPath, then refuse paths under the schema's `readonly` prefixes. */
 async function resolveWritablePath(vp: string, relPath: string): Promise<string> {
   const abs = await resolveVaultPath(vp, relPath);
-  const readonly = (await loadVaultSchema(vp))?.readonly ?? [];
-  const rel = vaultRel(vp, abs);
-  if (readonly.some(p => rel.startsWith(p))) throw new Error(`Path is read-only: ${relPath}`);
+  if (await isReadonlyPath(vp, abs, (await loadVaultSchema(vp))?.readonly ?? [])) throw new Error(`Path is read-only: ${relPath}`);
   return abs;
 }
 
@@ -531,7 +545,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         const next = rewriteWikilinks(content, from, to, unique);
         if (next === content) continue;
         const rel = vaultRel(vp, abs);
-        if (readonly.some(p => rel.startsWith(p))) { skipped.push(rel); continue; }
+        if (await isReadonlyPath(vp, abs, readonly)) { skipped.push(rel); continue; }
         await fs.writeFile(abs, next, 'utf-8');
         ctx.reindex(vp, rel);
         updated.push(rel);
