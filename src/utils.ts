@@ -73,17 +73,22 @@ export function splitCode(content: string): Array<{ code: boolean; text: string 
 }
 
 /**
- * Build a wikilink resolver over vault-relative note paths. A bare name matches the first note with that
- * basename; a path-style target (`folder/note`) matches that exact path. Both are case-insensitive.
+ * Build a wikilink resolver over vault-relative file paths. Notes are linked without `.md` (an explicit `.md` is
+ * accepted); other files (`.base`, images, PDFs) with their extension. A bare name matches the first file with that
+ * name; a path-style target (`folder/note`) matches that exact path. Both are case-insensitive.
  */
 export function buildLinkResolver(allFiles: string[]): (target: string) => string | undefined {
+  const linkName = (f: string) => f.replace(/\.md$/i, '').toLowerCase();
   const byName = new Map<string, string>();
   for (const f of allFiles) {
-    const key = path.basename(f, '.md').toLowerCase();
+    const key = path.basename(linkName(f));
     if (!byName.has(key)) byName.set(key, f);
   }
-  const byPath = new Map(allFiles.map(f => [f.toLowerCase(), f]));
-  return (t: string) => byName.get(t.toLowerCase()) ?? (t.includes('/') ? byPath.get(`${t}.md`.toLowerCase()) : undefined);
+  const byPath = new Map(allFiles.map(f => [linkName(f), f]));
+  return (t: string) => {
+    const key = linkName(t);
+    return t.includes('/') ? byPath.get(key) : byName.get(key);
+  };
 }
 
 /**

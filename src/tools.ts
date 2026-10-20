@@ -501,7 +501,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const filePath = String(args.file_path);
       const limit = Number(args.limit) || 5;
       const content = await fs.readFile(await resolveVaultPath(vp, filePath), 'utf-8');
-      const resolveLink = buildLinkResolver(await glob('**/*.md', { cwd: vp }));
+      const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
       const targets = [...new Set(extractWikilinks(content).map(stripHeadingFromLink).filter(Boolean))];
       const out = targets.map(t => `- [[${t}]] → ${resolveLink(t) ?? '(unresolved)'}`);
       const backlinks = await findBacklinks(vp, path.basename(filePath, '.md'));
@@ -634,7 +634,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       if (args.subfolder) await resolveVaultPath(vp, String(args.subfolder));
       const pattern = listNotesPattern(args.subfolder ? String(args.subfolder) : undefined);
       const files = await glob(pattern, { cwd: vp });
-      const resolveLink = buildLinkResolver(await glob('**/*.md', { cwd: vp }));
+      const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
       const targetMap = new Map<string, string[]>();
       for (const f of files) {
         const content = await fs.readFile(path.join(vp, f), 'utf-8').catch(() => '');

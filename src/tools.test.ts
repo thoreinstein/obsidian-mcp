@@ -404,3 +404,20 @@ describe('links inside code are not links', () => {
     expect(await runTool('obsidian_get_orphans', { subfolder: 'sub' }, ctx)).toBe('Found 1 orphan(s):\n- sub/b.md');
   });
 });
+
+describe('links to non-note files', () => {
+  beforeEach(async () => {
+    await fs.writeFile(path.join(vp, 'sub', 'Check-ins.base'), 'views: []');
+    await fs.writeFile(path.join(vp, 'sub', 'img.png'), '');
+    await fs.writeFile(path.join(vp, 'a.md'), '[[Check-ins.base]] ![[img.png|200]] [[sub/img.png]] [[b.md]] [[gone.pdf]]');
+  });
+  it('get_broken_links resolves attachments and .md-suffixed links', async () => {
+    expect(await runTool('obsidian_get_broken_links', {}, ctx)).toBe('Found 1 broken link(s):\n[[gone.pdf]] — in: a.md');
+  });
+  it('get_related shows where attachments resolve', async () => {
+    ctx.indexer = { similarNotes: vi.fn(async () => []) } as any;
+    const out = await runTool('obsidian_get_related', { file_path: 'a.md' }, ctx);
+    expect(out).toContain('- [[Check-ins.base]] → sub/Check-ins.base');
+    expect(out).toContain('- [[b.md]] → sub/b.md');
+  });
+});
