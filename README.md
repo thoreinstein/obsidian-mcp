@@ -93,6 +93,8 @@ The embedding model defaults to `Xenova/all-MiniLM-L6-v2`; set `OBSIDIAN_RAG_MOD
 
 The index rebuilds incrementally from scratch on first use, so migrating from the old plugin locations needs no manual step.
 
+The MCP server runs an incremental index in the background when it starts, so notes edited outside the server (in Obsidian, by exporters, by hand) are picked up on every client restart. Writes through the server's own tools reindex the note immediately.
+
 ## Development
 
 ```sh

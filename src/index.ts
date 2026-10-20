@@ -259,4 +259,12 @@ const ctx: ToolContext = {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Catch up on notes changed outside the server (Obsidian, exporters, hand edits). Incremental, so unchanged notes are skipped.
+  const startupVault = VAULT_PATH;
+  if (startupVault) {
+    reindexQueue = reindexQueue
+      .then(() => indexer.indexVault(startupVault))
+      .catch(err => console.error('Startup reindex failed:', err));
+  }
 })();
