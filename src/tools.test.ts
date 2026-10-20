@@ -363,3 +363,20 @@ describe('obsidian_list_notes frontmatter filters', () => {
     expect(JSON.parse(await runTool('obsidian_list_notes', { subfolder: 'sub', status: 'complete' }, ctx))).toEqual(['sub/c.md']);
   });
 });
+
+describe('obsidian_get_orphans', () => {
+  beforeEach(async () => {
+    await fs.mkdir(path.join(vp, 'MOCs'));
+    await fs.writeFile(path.join(vp, 'MOCs', 'Home.md'), 'see [[b#H|B]]');
+    await fs.writeFile(path.join(vp, 'a.md'), 'self [[a]] and [[sub/c]]');
+    await fs.writeFile(path.join(vp, 'sub', 'c.md'), 'no links');
+  });
+  it('lists notes nothing else links to, ignoring self-links', async () => {
+    const out = await runTool('obsidian_get_orphans', {}, ctx);
+    expect(out).toBe('Found 2 orphan(s):\n- MOCs/Home.md\n- a.md');
+  });
+  it('scopes candidates by subfolder and sources by linked_from', async () => {
+    expect(await runTool('obsidian_get_orphans', { subfolder: 'sub', linked_from: 'MOCs/' }, ctx)).toBe('Found 1 orphan(s):\n- sub/c.md');
+    expect(await runTool('obsidian_get_orphans', { subfolder: 'sub' }, ctx)).toBe('No orphans found.');
+  });
+});

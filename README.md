@@ -13,7 +13,7 @@ MCP server for Obsidian vault integration with local RAG (semantic search) — e
 
 ## Tools
 
-`obsidian_list_notes`, `obsidian_read_note`, `obsidian_search_notes`, `obsidian_rag_index`, `obsidian_rag_query`, `obsidian_set_vault`, `obsidian_create_note`, `obsidian_append_note`, `obsidian_get_daily_note`, `obsidian_get_backlinks`, `obsidian_get_links`, `obsidian_move_note`, `obsidian_update_frontmatter`, `obsidian_append_daily_log`, `obsidian_replace_section`, `obsidian_insert_at_heading`, `obsidian_replace_in_note`, `obsidian_get_broken_links`, `obsidian_get_note_outline`, `obsidian_get_related`, `validate_frontmatter`
+`obsidian_list_notes`, `obsidian_read_note`, `obsidian_search_notes`, `obsidian_rag_index`, `obsidian_rag_query`, `obsidian_set_vault`, `obsidian_create_note`, `obsidian_append_note`, `obsidian_get_daily_note`, `obsidian_get_backlinks`, `obsidian_get_links`, `obsidian_move_note`, `obsidian_update_frontmatter`, `obsidian_append_daily_log`, `obsidian_replace_section`, `obsidian_insert_at_heading`, `obsidian_replace_in_note`, `obsidian_get_broken_links`, `obsidian_get_orphans`, `obsidian_get_note_outline`, `obsidian_get_related`, `validate_frontmatter`
 
 Each tool is also callable one-shot from the CLI: `node dist/index.js obsidian_rag_index`. `obsidian_rag_eval --file <queries.json>` is CLI-only and scores retrieval against a set of queries.
 
@@ -25,6 +25,7 @@ Notable parameters:
 - `obsidian_search_notes`: `regex`, `folder`, `limit` (filename and content hits both count toward the limit)
 - `obsidian_get_note_outline`: frontmatter, headings, wikilinks and word count
 - `obsidian_get_related`: outgoing links, backlinks and semantically similar notes
+- `obsidian_get_orphans`: notes nothing links to; `subfolder` limits the notes reported, `linked_from` counts only links from one prefix (e.g. `MOCs/`)
 - `obsidian_move_note`: rewrites wikilinks that point at the moved note unless `update_links` is false; refuses an existing destination
 
 ## Install

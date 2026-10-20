@@ -283,6 +283,18 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
       },
     },
   },
+  {
+    name: 'obsidian_get_orphans',
+    description: 'List notes that no other note links to. Use linked_from to count only links from one area, e.g. Engineering notes missing from every MOC.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subfolder: { type: 'string', description: 'Only report notes in this subfolder' },
+        linked_from: { type: 'string', description: 'Only count links from notes whose path starts with this prefix (e.g. "MOCs/")' },
+        vault_path: { type: 'string', description: 'Optional vault path override' },
+      },
+    },
+  },
 ];
 
 // CLI args arrive as strings; MCP args are typed JSON. Accept both for booleans.
@@ -626,6 +638,27 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       if (broken.length === 0) return 'No broken links found.';
       const lines = broken.map(b => `[[${b.target}]] — in: ${b.refs.join(', ')}`).join('\n');
       return `Found ${broken.length} broken link(s):\n${lines}`;
+    }
+    case 'obsidian_get_orphans': {
+      const vp = vaultArg();
+      if (args.subfolder) await resolveVaultPath(vp, String(args.subfolder));
+      const allFiles = await glob('**/*.md', { cwd: vp });
+      const resolveLink = buildLinkResolver(allFiles);
+      const linkedFrom = args.linked_from ? String(args.linked_from) : '';
+      const linked = new Set<string>();
+      for (const f of allFiles) {
+        if (!f.startsWith(linkedFrom)) continue;
+        const content = await fs.readFile(path.join(vp, f), 'utf-8').catch(() => '');
+        for (const link of extractWikilinks(content)) {
+          const target = resolveLink(stripHeadingFromLink(link));
+          if (target && target !== f) linked.add(target);
+        }
+      }
+      const candidates = await glob(listNotesPattern(args.subfolder ? String(args.subfolder) : undefined), { cwd: vp });
+      const orphans = candidates.filter(f => !linked.has(f)).sort();
+      if (orphans.length === 0) return 'No orphans found.';
+      const shown = orphans.slice(0, 100).map(f => `- ${f}`).join('\n');
+      return `Found ${orphans.length} orphan(s):\n${shown}` + (orphans.length > 100 ? `\n...and ${orphans.length - 100} more.` : '');
     }
     default:
       throw new UnknownToolError(name);
