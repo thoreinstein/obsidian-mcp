@@ -58,6 +58,10 @@ describe('runTool', () => {
     await fs.writeFile(path.join(vp, "a.md"), "# T\nx\n## S\ny\n");
     await expect(runTool("obsidian_read_note", { file_path: "a.md", heading: "Nope" }, ctx)).rejects.toThrow(/Headings: T, S/);
   });
+  it("returns frontmatter dates as written", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "---\ncreated: 2026-10-20\n---\nbody\n");
+    expect(await runTool("obsidian_read_note", { file_path: "a.md", frontmatter_only: true }, ctx)).toContain("created: 2026-10-20\n");
+  });
   it("returns frontmatter only as YAML", async () => {
     await fs.writeFile(path.join(vp, "a.md"), "---\ntype: plan\n---\nbody\n");
     const out = await runTool("obsidian_read_note", { file_path: "a.md", frontmatter_only: true }, ctx);

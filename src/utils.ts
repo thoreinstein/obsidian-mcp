@@ -1,6 +1,20 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import matter from 'gray-matter';
+import yaml from 'js-yaml';
+
+/**
+ * gray-matter options for writing frontmatter back out. The default YAML schema turns `2026-10-20` into a Date
+ * and writes it back as `2026-10-20T00:00:00.000Z`; the core schema has no timestamp type, so dates stay as written.
+ */
+export const FRONTMATTER_OPTIONS = {
+  engines: {
+    yaml: {
+      parse: (s: string) => yaml.load(s, { schema: yaml.CORE_SCHEMA }) as object,
+      stringify: (data: object) => yaml.dump(data, { schema: yaml.CORE_SCHEMA }),
+    },
+  },
+};
 
 /**
  * Extract deduplicated wikilink targets from markdown content.
@@ -135,7 +149,7 @@ type FrontmatterUpdate =
 
 /** Apply a single key/value or a batch of updates to YAML frontmatter. Returns updated file content. */
 export function applyFrontmatterUpdate(fileContent: string, update: FrontmatterUpdate): string {
-  const parsed = matter(fileContent);
+  const parsed = matter(fileContent, FRONTMATTER_OPTIONS);
   // gray-matter caches parsed.data by content; mutate a copy so a rejected update can't poison later reads.
   const data = { ...parsed.data };
   if (update.updates) {
@@ -148,7 +162,7 @@ export function applyFrontmatterUpdate(fileContent: string, update: FrontmatterU
     try { value = JSON.parse(String(update.value)); } catch { /* use as string */ }
     data[update.key] = value;
   }
-  return matter.stringify(parsed.content, data);
+  return matter.stringify(parsed.content, data, FRONTMATTER_OPTIONS);
 }
 
 /**

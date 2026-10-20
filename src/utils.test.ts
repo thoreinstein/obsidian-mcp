@@ -64,6 +64,10 @@ describe('stripHeadingFromLink', () => {
 });
 
 describe('applyFrontmatterUpdate', () => {
+  it('keeps YAML dates exactly as written', () => {
+    const out = applyFrontmatterUpdate('---\ncreated: 2026-10-20\nstatus: approved\n---\nbody\n', { key: 'status', value: 'complete' });
+    expect(out).toBe('---\ncreated: 2026-10-20\nstatus: complete\n---\nbody\n');
+  });
   it('updates a single key/value', () => {
     const content = '---\nstatus: draft\n---\n# Title\n';
     const result = applyFrontmatterUpdate(content, { key: 'status', value: 'published' });

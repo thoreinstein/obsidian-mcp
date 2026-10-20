@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
-import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, validateFrontmatter, resolveVaultPath } from './utils.js';
+import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, validateFrontmatter, resolveVaultPath, FRONTMATTER_OPTIONS } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -384,8 +384,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const content = await fs.readFile(await resolveVaultPath(vp, String(args.file_path)), 'utf-8');
       if (args.frontmatter_only) {
-        const data = matter(content).data;
-        return Object.keys(data).length ? matter.stringify('', data) : '';
+        const data = matter(content, FRONTMATTER_OPTIONS).data;
+        return Object.keys(data).length ? matter.stringify('', data, FRONTMATTER_OPTIONS) : '';
       }
       if (args.heading) {
         const heading = String(args.heading);
