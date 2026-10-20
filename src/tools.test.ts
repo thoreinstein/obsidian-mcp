@@ -421,3 +421,35 @@ describe('links to non-note files', () => {
     expect(out).toContain('- [[b.md]] → sub/b.md');
   });
 });
+
+describe('frontmatter checks on edit tools', () => {
+  beforeEach(async () => {
+    await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ rules: [{ prefix: '', required: ['type'], allowed: { type: ['plan'] } }] }));
+  });
+  it('replace_in_note refuses an edit that breaks frontmatter', async () => {
+    const original = '---\ntype: plan\n---\nbody\n';
+    await fs.writeFile(path.join(vp, 'a.md'), original);
+    await expect(runTool('obsidian_replace_in_note', { file_path: 'a.md', old_text: 'type: plan', new_text: 'type: junk' }, ctx))
+      .rejects.toThrow(/Frontmatter invalid for a\.md/);
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe(original);
+  });
+  it('still allows body edits to a note whose frontmatter was already invalid', async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), '## H\nold\n');
+    await runTool('obsidian_replace_section', { file_path: 'a.md', heading: 'H', content: 'new' }, ctx);
+    await runTool('obsidian_insert_at_heading', { file_path: 'a.md', heading: 'H', content: 'more' }, ctx);
+    await runTool('obsidian_replace_in_note', { file_path: 'a.md', old_text: 'new', new_text: 'newer' }, ctx);
+    await runTool('obsidian_append_note', { file_path: 'a.md', content: 'tail' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toContain('tail');
+  });
+  it('allows body edits to a note with unparseable YAML but refuses breaking valid YAML', async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), '---\ntype: [oops\n---\nbody\n');
+    await runTool('obsidian_append_note', { file_path: 'a.md', content: 'tail' }, ctx);
+    await fs.writeFile(path.join(vp, 'sub', 'b.md'), '---\ntype: plan\n---\nbody\n');
+    await expect(runTool('obsidian_replace_in_note', { file_path: 'sub/b.md', old_text: 'type: plan', new_text: 'type: [oops' }, ctx)).rejects.toThrow();
+    expect(await fs.readFile(path.join(vp, 'sub', 'b.md'), 'utf-8')).toBe('---\ntype: plan\n---\nbody\n');
+  });
+  it('append_note refuses a missing note instead of creating it', async () => {
+    await expect(runTool('obsidian_append_note', { file_path: 'typo.md', content: 'x' }, ctx)).rejects.toThrow('Note not found: typo.md');
+    await expect(fs.access(path.join(vp, 'typo.md'))).rejects.toThrow();
+  });
+});

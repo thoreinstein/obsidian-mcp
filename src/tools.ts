@@ -327,6 +327,18 @@ async function assertValidFrontmatter(vp: string, relPath: string, content: stri
   if (errors.length > 0) throw new Error(`Frontmatter invalid for ${relPath}: ${errors.join('; ')}`);
 }
 
+/**
+ * Write an edit to an existing note. Validates frontmatter only when the edit changed it, so body edits still work
+ * on older notes whose frontmatter predates the schema.
+ */
+async function writeEdit(vp: string, relPath: string, filePath: string, before: string, after: string): Promise<void> {
+  const fm = (text: string) => {
+    try { return JSON.stringify(matter(text, FRONTMATTER_OPTIONS).data); } catch { return 'unparseable'; }
+  };
+  if (fm(before) !== fm(after)) await assertValidFrontmatter(vp, relPath, after);
+  await fs.writeFile(filePath, after, 'utf-8');
+}
+
 /** Normalized, forward-slash vault-relative path of an absolute path inside the vault. */
 const vaultRel = (vp: string, abs: string) => path.relative(path.resolve(vp), abs).split(path.sep).join('/');
 
@@ -424,7 +436,14 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const filePath = await resolveWritablePath(vp, String(args.file_path));
       const content = String(args.content || '');
-      await fs.appendFile(filePath, '\n' + content, 'utf-8');
+      let fileContent: string;
+      try {
+        fileContent = await fs.readFile(filePath, 'utf-8');
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Note not found: ${args.file_path}`);
+        throw e;
+      }
+      await writeEdit(vp, String(args.file_path), filePath, fileContent, fileContent + '\n' + content);
       ctx.reindex(vp, String(args.file_path));
       return `Appended to note: ${args.file_path}`;
     }
@@ -579,7 +598,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const range = findSectionRange(fileContent, heading);
       if (!range) throw new McpError(ErrorCode.InvalidParams, `Heading "${heading}" not found in ${args.file_path}`);
-      await fs.writeFile(filePath, replaceSection(fileContent, range, content), 'utf-8');
+      await writeEdit(vp, String(args.file_path), filePath, fileContent, replaceSection(fileContent, range, content));
       ctx.reindex(vp, String(args.file_path));
       return `Replaced section "${heading}" in ${args.file_path}`;
     }
@@ -591,7 +610,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const position = (args.position || 'end') as 'beginning' | 'end';
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const range = findSectionRange(fileContent, heading);
-      await fs.writeFile(filePath, insertAtHeading(fileContent, heading, content, position, range), 'utf-8');
+      await writeEdit(vp, String(args.file_path), filePath, fileContent, insertAtHeading(fileContent, heading, content, position, range));
       ctx.reindex(vp, String(args.file_path));
       return `Inserted content under "${heading}" in ${args.file_path}`;
     }
@@ -625,7 +644,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const filePath = await resolveWritablePath(vp, String(args.file_path));
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const updated = replaceInNote(fileContent, String(args.old_text), String(args.new_text ?? ''));
-      await fs.writeFile(filePath, updated, 'utf-8');
+      await writeEdit(vp, String(args.file_path), filePath, fileContent, updated);
       ctx.reindex(vp, String(args.file_path));
       return `Replaced text in ${args.file_path}`;
     }
