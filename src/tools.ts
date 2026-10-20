@@ -34,11 +34,13 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_list_notes',
-    description: 'List markdown files in the vault or a subdirectory.',
+    description: 'List markdown files in the vault or a subdirectory, optionally filtered by frontmatter type and status.',
     inputSchema: {
       type: 'object',
       properties: {
         subfolder: { type: 'string', description: 'Optional subfolder to list' },
+        type: { type: 'string', description: 'Only notes whose frontmatter type equals this' },
+        status: { type: 'string', description: 'Only notes whose frontmatter status equals this' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
     },
@@ -340,7 +342,16 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       if (args.subfolder) await resolveVaultPath(vp, String(args.subfolder));
       const pattern = listNotesPattern(args.subfolder ? String(args.subfolder) : undefined);
-      const files = await glob(pattern, { cwd: vp });
+      let files = await glob(pattern, { cwd: vp });
+      const want = { type: args.type, status: args.status };
+      if (want.type || want.status) {
+        const kept: string[] = [];
+        for (const f of files) {
+          const data = matter(await fs.readFile(path.join(vp, f), 'utf-8')).data;
+          if ((!want.type || data.type === want.type) && (!want.status || data.status === want.status)) kept.push(f);
+        }
+        files = kept;
+      }
       return JSON.stringify(files.slice(0, 100), null, 2) + (files.length > 100 ? `\n...and ${files.length - 100} more.` : '');
     }
     case 'obsidian_read_note': {

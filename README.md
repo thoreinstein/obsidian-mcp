@@ -20,6 +20,7 @@ Each tool is also callable one-shot from the CLI: `node dist/index.js obsidian_r
 Notable parameters:
 
 - `obsidian_rag_query`: `folder`, `type`, `status`, `after` filter results; each hit is labelled with folder, date, status and type
+- `obsidian_list_notes`: `type` and `status` filter by frontmatter
 - `obsidian_read_note`: `heading` returns one section, `frontmatter_only` returns just the YAML
 - `obsidian_search_notes`: `regex`, `folder`, `limit` (filename and content hits both count toward the limit)
 - `obsidian_get_note_outline`: frontmatter, headings, wikilinks and word count

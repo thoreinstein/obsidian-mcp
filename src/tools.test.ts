@@ -350,3 +350,16 @@ describe('obsidian_move_note link updates', () => {
     expect(out).toContain('left links in 1 read-only note unchanged: engram/m.md');
   });
 });
+
+describe('obsidian_list_notes frontmatter filters', () => {
+  beforeEach(async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), '---\ntype: plan\nstatus: complete\n---\n');
+    await fs.writeFile(path.join(vp, 'sub', 'b.md'), '---\ntype: plan\nstatus: active\n---\n');
+    await fs.writeFile(path.join(vp, 'sub', 'c.md'), '---\ntype: spec\nstatus: complete\n---\n');
+  });
+  it('filters by type and status', async () => {
+    expect(JSON.parse(await runTool('obsidian_list_notes', { type: 'plan' }, ctx)).sort()).toEqual(['a.md', 'sub/b.md']);
+    expect(JSON.parse(await runTool('obsidian_list_notes', { type: 'plan', status: 'complete' }, ctx))).toEqual(['a.md']);
+    expect(JSON.parse(await runTool('obsidian_list_notes', { subfolder: 'sub', status: 'complete' }, ctx))).toEqual(['sub/c.md']);
+  });
+});
