@@ -252,3 +252,20 @@ describe('vault path containment', () => {
     expect(await fs.readFile(path.join(vp, 'moved/c.md'), 'utf-8')).toBe('c');
   });
 });
+
+describe('no silent overwrites', () => {
+  it('create_note refuses an existing note and leaves it unchanged', async () => {
+    await expect(runTool('obsidian_create_note', { file_path: 'a.md', content: 'new' }, ctx)).rejects.toThrow('Note already exists: a.md');
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('hello a');
+    expect(reindex).not.toHaveBeenCalled();
+  });
+  it('move_note refuses an existing destination and leaves both notes', async () => {
+    await expect(runTool('obsidian_move_note', { source_path: 'a.md', dest_path: 'sub/b.md' }, ctx)).rejects.toThrow('Destination already exists: sub/b.md');
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('hello a');
+    expect(await fs.readFile(path.join(vp, 'sub', 'b.md'), 'utf-8')).toBe('hello b');
+  });
+  it('move_note still allows a case-only rename', async () => {
+    await runTool('obsidian_move_note', { source_path: 'a.md', dest_path: 'A.md' }, ctx);
+    expect(await fs.readdir(vp)).toContain('A.md');
+  });
+});

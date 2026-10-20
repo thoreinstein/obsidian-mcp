@@ -357,7 +357,12 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const content = String(args.content || '');
       await assertValidFrontmatter(vp, String(args.file_path), content);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, content, 'utf-8');
+      try {
+        await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`Note already exists: ${args.file_path}`);
+        throw e;
+      }
       ctx.reindex(vp, String(args.file_path));
       return `Created note: ${args.file_path}`;
     }
@@ -470,6 +475,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const source = await resolveVaultPath(vp, String(args.source_path));
       const dest = await resolveVaultPath(vp, String(args.dest_path));
+      // fs.rename replaces an existing file. Same inode means a case-only rename on a case-insensitive filesystem.
+      const destStat = await fs.stat(dest).catch(() => null);
+      if (destStat && destStat.ino !== (await fs.stat(source)).ino) throw new Error(`Destination already exists: ${args.dest_path}`);
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(source, dest);
       ctx.reindex(vp, String(args.dest_path), String(args.source_path));
