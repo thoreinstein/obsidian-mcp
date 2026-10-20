@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
-import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, validateFrontmatter, resolveVaultPath } from './utils.js';
+import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, validateFrontmatter, resolveVaultPath } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -187,12 +187,13 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_move_note',
-    description: 'Move or rename a note.',
+    description: 'Move or rename a note and update wikilinks that point at it. Refuses an existing destination.',
     inputSchema: {
       type: 'object',
       properties: {
         source_path: { type: 'string', description: 'Current relative path of the note' },
         dest_path: { type: 'string', description: 'New relative path for the note (e.g. "Archive/OldNote.md")' },
+        update_links: { type: 'boolean', description: 'Rewrite wikilinks that point at the note (default true). Read-only notes are left unchanged.' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
       required: ['source_path', 'dest_path'],
@@ -311,6 +312,9 @@ async function assertValidFrontmatter(vp: string, relPath: string, content: stri
   if (errors.length > 0) throw new Error(`Frontmatter invalid for ${relPath}: ${errors.join('; ')}`);
 }
 
+/** Normalized, forward-slash vault-relative path of an absolute path inside the vault. */
+const vaultRel = (vp: string, abs: string) => path.relative(path.resolve(vp), abs).split(path.sep).join('/');
+
 /**
  * resolveVaultPath, then refuse paths under the schema's `readonly` prefixes.
  * The prefix check runs on the normalized vault-relative path, so `sub/../engram/x.md` can't slip past `engram/`.
@@ -318,7 +322,7 @@ async function assertValidFrontmatter(vp: string, relPath: string, content: stri
 async function resolveWritablePath(vp: string, relPath: string): Promise<string> {
   const abs = await resolveVaultPath(vp, relPath);
   const readonly = (await loadVaultSchema(vp))?.readonly ?? [];
-  const rel = path.relative(path.resolve(vp), abs).split(path.sep).join('/');
+  const rel = vaultRel(vp, abs);
   if (readonly.some(p => rel.startsWith(p))) throw new Error(`Path is read-only: ${relPath}`);
   return abs;
 }
@@ -483,10 +487,36 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       // fs.rename replaces an existing file. Same inode means a case-only rename on a case-insensitive filesystem.
       const destStat = await fs.stat(dest).catch(() => null);
       if (destStat && destStat.ino !== (await fs.stat(source)).ino) throw new Error(`Destination already exists: ${args.dest_path}`);
+      const allFiles = await glob('**/*.md', { cwd: vp });
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(source, dest);
       ctx.reindex(vp, String(args.dest_path), String(args.source_path));
-      return `Moved ${args.source_path} to ${args.dest_path}`;
+      const moved = `Moved ${args.source_path} to ${args.dest_path}`;
+      if (args.update_links === false || args.update_links === 'false') return moved;
+
+      const noExt = (abs: string) => vaultRel(vp, abs).replace(/\.md$/i, '');
+      const from = { name: path.basename(source, '.md'), path: noExt(source) };
+      const to = { name: path.basename(dest, '.md'), path: noExt(dest) };
+      // A bare [[name]] only points at this note when no other note shares the name.
+      const unique = allFiles.filter(f => path.basename(f, '.md').toLowerCase() === from.name.toLowerCase()).length === 1;
+      const readonly = (await loadVaultSchema(vp))?.readonly ?? [];
+      const updated: string[] = [], skipped: string[] = [];
+      for (const f of await glob('**/*.md', { cwd: vp })) {
+        const abs = path.join(vp, f);
+        const content = await fs.readFile(abs, 'utf-8').catch(() => null);
+        if (content === null) continue;
+        const next = rewriteWikilinks(content, from, to, unique);
+        if (next === content) continue;
+        const rel = vaultRel(vp, abs);
+        if (readonly.some(p => rel.startsWith(p))) { skipped.push(rel); continue; }
+        await fs.writeFile(abs, next, 'utf-8');
+        ctx.reindex(vp, rel);
+        updated.push(rel);
+      }
+      const notes = (n: number, kind = '') => `${n} ${kind}${n === 1 ? 'note' : 'notes'}`;
+      let out = `${moved}; updated links in ${notes(updated.length)}`;
+      if (skipped.length) out += `; left links in ${notes(skipped.length, 'read-only ')} unchanged: ${skipped.join(', ')}`;
+      return out;
     }
     case 'obsidian_update_frontmatter': {
       const vp = vaultArg();

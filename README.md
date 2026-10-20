@@ -24,6 +24,7 @@ Notable parameters:
 - `obsidian_search_notes`: `regex`, `folder`, `limit` (filename and content hits both count toward the limit)
 - `obsidian_get_note_outline`: frontmatter, headings, wikilinks and word count
 - `obsidian_get_related`: outgoing links, backlinks and semantically similar notes
+- `obsidian_move_note`: rewrites wikilinks that point at the moved note unless `update_links` is false; refuses an existing destination
 
 ## Install
 

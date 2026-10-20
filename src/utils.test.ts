@@ -19,6 +19,7 @@ import {
   findMatches,
   noteOutline,
   buildInstructions,
+  rewriteWikilinks,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -261,5 +262,20 @@ describe('loadVaultSchema', () => {
     await fs.writeFile(path.join(dir, '.obsidian-mcp-schema.json'), JSON.stringify({ rules: [{ prefix: 'a/', required: ['x'] }] }));
     expect((await loadVaultSchema(dir))!.rules[0].prefix).toBe('a/');
     await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe('rewriteWikilinks', () => {
+  const from = { name: 'Old', path: 'working/Old' };
+  const to = { name: 'New', path: 'archive/New' };
+  it('rewrites bare links keeping embeds, headings and aliases', () => {
+    expect(rewriteWikilinks('[[Old]] ![[old]] [[Old#H|see]] [[Older]] [[Other|Old]]', from, to, true))
+      .toBe('[[New]] ![[New]] [[New#H|see]] [[Older]] [[Other|Old]]');
+  });
+  it('rewrites matching path-style links to the new path', () => {
+    expect(rewriteWikilinks('[[working/old#H]] [[other/Old]]', from, to, true)).toBe('[[archive/New#H]] [[other/Old]]');
+  });
+  it('leaves bare links alone when rewriteBare is false', () => {
+    expect(rewriteWikilinks('[[Old]] [[working/Old]]', from, to, false)).toBe('[[Old]] [[archive/New]]');
   });
 });

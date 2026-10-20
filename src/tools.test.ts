@@ -321,3 +321,32 @@ describe('obsidian_get_broken_links path-style links', () => {
     expect(out).toContain('[[nope/b]] — in: a.md');
   });
 });
+
+describe('obsidian_move_note link updates', () => {
+  beforeEach(async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), 'see [[b]], [[sub/b#H|alias]] and ![[B]]');
+  });
+  it('rewrites inbound links to the new name and path', async () => {
+    const out = await runTool('obsidian_move_note', { source_path: 'sub/b.md', dest_path: 'archive/c.md' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('see [[c]], [[archive/c#H|alias]] and ![[c]]');
+    expect(out).toContain('updated links in 1 note');
+    expect(reindex).toHaveBeenCalledWith(vp, 'a.md');
+  });
+  it('leaves links alone when update_links is false', async () => {
+    await runTool('obsidian_move_note', { source_path: 'sub/b.md', dest_path: 'c.md', update_links: 'false' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('see [[b]], [[sub/b#H|alias]] and ![[B]]');
+  });
+  it('only rewrites path-style links when the old name is not unique', async () => {
+    await fs.writeFile(path.join(vp, 'b.md'), 'another b');
+    await runTool('obsidian_move_note', { source_path: 'sub/b.md', dest_path: 'c.md' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('see [[b]], [[c#H|alias]] and ![[B]]');
+  });
+  it('skips read-only notes and says so', async () => {
+    await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ readonly: ['engram/'], rules: [] }));
+    await fs.mkdir(path.join(vp, 'engram'));
+    await fs.writeFile(path.join(vp, 'engram', 'm.md'), 'ref [[b]]');
+    const out = await runTool('obsidian_move_note', { source_path: 'sub/b.md', dest_path: 'c.md' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'engram', 'm.md'), 'utf-8')).toBe('ref [[b]]');
+    expect(out).toContain('left links in 1 read-only note unchanged: engram/m.md');
+  });
+});

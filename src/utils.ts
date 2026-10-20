@@ -30,6 +30,24 @@ export function buildLinkResolver(allFiles: string[]): (target: string) => strin
   return (t: string) => byName.get(t.toLowerCase()) ?? (t.includes('/') ? byPath.get(`${t}.md`.toLowerCase()) : undefined);
 }
 
+/**
+ * Point wikilinks (and embeds) at a moved note, keeping any #heading and |alias. Path-style links matching
+ * `from.path` become `to.path`; bare links matching `from.name` become `to.name` only when `rewriteBare` is set.
+ * Names and paths have no `.md` extension; matching is case-insensitive.
+ */
+export function rewriteWikilinks(
+  content: string,
+  from: { name: string; path: string },
+  to: { name: string; path: string },
+  rewriteBare: boolean,
+): string {
+  return content.replace(/(\[\[)([^\]|#]+)/g, (m, open: string, target: string) => {
+    const t = target.toLowerCase();
+    if (target.includes('/')) return t === from.path.toLowerCase() ? open + to.path : m;
+    return rewriteBare && t === from.name.toLowerCase() ? open + to.name : m;
+  });
+}
+
 export interface SectionRange {
   headingStart: number;
   headingEnd: number;
