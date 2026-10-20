@@ -312,3 +312,12 @@ describe('readonly paths', () => {
     expect(await fs.readFile(path.join(vp, 'Daily', daily), 'utf-8')).toContain('did a thing');
   });
 });
+
+describe('obsidian_get_broken_links path-style links', () => {
+  it('resolves [[folder/note]] and still flags missing ones', async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), 'see [[Sub/B]], [[sub/b#H|alias]] and [[nope/b]]');
+    const out = await runTool('obsidian_get_broken_links', {}, ctx);
+    expect(out).toContain('Found 1 broken link(s)');
+    expect(out).toContain('[[nope/b]] — in: a.md');
+  });
+});

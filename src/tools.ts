@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
-import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, validateFrontmatter, resolveVaultPath } from './utils.js';
+import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, validateFrontmatter, resolveVaultPath } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -459,14 +459,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const filePath = String(args.file_path);
       const limit = Number(args.limit) || 5;
       const content = await fs.readFile(await resolveVaultPath(vp, filePath), 'utf-8');
-      const allFiles = await glob('**/*.md', { cwd: vp });
-      const byName = new Map<string, string>();
-      for (const f of allFiles) {
-        const key = path.basename(f, '.md').toLowerCase();
-        if (!byName.has(key)) byName.set(key, f);
-      }
-      const byPath = new Map(allFiles.map(f => [f.toLowerCase(), f]));
-      const resolveLink = (t: string) => byName.get(t.toLowerCase()) ?? (t.includes('/') ? byPath.get(`${t}.md`.toLowerCase()) : undefined);
+      const resolveLink = buildLinkResolver(await glob('**/*.md', { cwd: vp }));
       const targets = [...new Set(extractWikilinks(content).map(stripHeadingFromLink).filter(Boolean))];
       const out = targets.map(t => `- [[${t}]] → ${resolveLink(t) ?? '(unresolved)'}`);
       const backlinks = await findBacklinks(vp, path.basename(filePath, '.md'));
@@ -573,8 +566,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       if (args.subfolder) await resolveVaultPath(vp, String(args.subfolder));
       const pattern = listNotesPattern(args.subfolder ? String(args.subfolder) : undefined);
       const files = await glob(pattern, { cwd: vp });
-      const allFiles = await glob('**/*.md', { cwd: vp });
-      const nameSet = new Set(allFiles.map((f: string) => path.basename(f, '.md').toLowerCase()));
+      const resolveLink = buildLinkResolver(await glob('**/*.md', { cwd: vp }));
       const targetMap = new Map<string, string[]>();
       for (const f of files) {
         const content = await fs.readFile(path.join(vp, f), 'utf-8').catch(() => '');
@@ -588,7 +580,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       }
       const broken: Array<{ target: string; refs: string[] }> = [];
       for (const [target, refs] of targetMap) {
-        if (!nameSet.has(target.toLowerCase())) broken.push({ target, refs });
+        if (!resolveLink(target)) broken.push({ target, refs });
       }
       if (broken.length === 0) return 'No broken links found.';
       const lines = broken.map(b => `[[${b.target}]] — in: ${b.refs.join(', ')}`).join('\n');

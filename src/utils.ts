@@ -16,6 +16,20 @@ export function extractWikilinks(content: string): string[] {
   return [...new Set(links)];
 }
 
+/**
+ * Build a wikilink resolver over vault-relative note paths. A bare name matches the first note with that
+ * basename; a path-style target (`folder/note`) matches that exact path. Both are case-insensitive.
+ */
+export function buildLinkResolver(allFiles: string[]): (target: string) => string | undefined {
+  const byName = new Map<string, string>();
+  for (const f of allFiles) {
+    const key = path.basename(f, '.md').toLowerCase();
+    if (!byName.has(key)) byName.set(key, f);
+  }
+  const byPath = new Map(allFiles.map(f => [f.toLowerCase(), f]));
+  return (t: string) => byName.get(t.toLowerCase()) ?? (t.includes('/') ? byPath.get(`${t}.md`.toLowerCase()) : undefined);
+}
+
 export interface SectionRange {
   headingStart: number;
   headingEnd: number;
