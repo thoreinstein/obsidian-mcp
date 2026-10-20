@@ -478,3 +478,22 @@ export async function resolveVaultPath(vaultRoot: string, relPath: string): Prom
     }
   }
 }
+
+const CLI_FLAG = /^--([A-Za-z_][A-Za-z0-9_-]*)(=([\s\S]*))?$/;
+
+/** Parse one-shot CLI args: `--key value`, `--key=value`, or bare `--key` (true). Values may start with `---`. */
+export function parseCliArgs(args: string[]): Record<string, string | true> {
+  const out: Record<string, string | true> = {};
+  for (let i = 0; i < args.length; i++) {
+    const m = CLI_FLAG.exec(args[i]);
+    if (!m) continue;
+    if (m[2] !== undefined) {
+      out[m[1]] = m[3];
+    } else if (i + 1 < args.length && !CLI_FLAG.test(args[i + 1])) {
+      out[m[1]] = args[++i];
+    } else {
+      out[m[1]] = true;
+    }
+  }
+  return out;
+}

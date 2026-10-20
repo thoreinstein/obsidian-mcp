@@ -6,6 +6,7 @@ import * as os from 'os';
 import matter from 'gray-matter';
 import {
   listNotesPattern,
+  parseCliArgs,
   replaceInNote,
   stripHeadingFromLink,
   applyFrontmatterUpdate,
@@ -296,5 +297,29 @@ describe('wikilinks in code', () => {
   });
   it('treats an unclosed fence as code to the end', () => {
     expect(extractWikilinks('[[A]]\n```\n[[B]]')).toEqual(['A']);
+  });
+});
+
+describe('parseCliArgs', () => {
+  it('keeps a value that starts with ---', () => {
+    expect(parseCliArgs(['--content', '---\ntype: note\n---\n'])).toEqual({ content: '---\ntype: note\n---\n' });
+  });
+  it('supports --key=value, including empty and embedded =', () => {
+    expect(parseCliArgs(['--content=---x'])).toEqual({ content: '---x' });
+    expect(parseCliArgs(['--a=', '--b=x=y'])).toEqual({ a: '', b: 'x=y' });
+  });
+  it('treats a lone flag as true', () => {
+    expect(parseCliArgs(['--force'])).toEqual({ force: true });
+    expect(parseCliArgs(['--hook'])).toEqual({ hook: true });
+  });
+  it('treats a flag followed by a flag as true', () => {
+    expect(parseCliArgs(['--a', '--b', 'v'])).toEqual({ a: true, b: 'v' });
+  });
+  it('parses existing hook and eval call patterns', () => {
+    expect(parseCliArgs(['--hook'])).toEqual({ hook: true });
+    expect(parseCliArgs(['--file', 'x.json'])).toEqual({ file: 'x.json' });
+  });
+  it('ignores stray non-flag tokens', () => {
+    expect(parseCliArgs(['stray', '--a', 'v', 'extra'])).toEqual({ a: 'v' });
   });
 });

@@ -36,7 +36,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { VaultIndexer } from './rag/store.js';
-import { buildInstructions, loadVaultSchema, validateFrontmatter, type VaultSchema } from './utils.js';
+import { buildInstructions, loadVaultSchema, parseCliArgs, validateFrontmatter, type VaultSchema } from './utils.js';
 import { runEval } from './rag/eval.js';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
@@ -133,18 +133,7 @@ const ctx: ToolContext = {
     // Keep the CLI's historical behavior (no auto-reindex on writes).
     ctx.reindex = () => {};
 
-    const parsedArgs: any = {};
-    for (let i = 0; i < toolArgs.length; i++) {
-        if (toolArgs[i] && toolArgs[i].startsWith('--')) {
-            const key = toolArgs[i].substring(2);
-            if (i + 1 < toolArgs.length && !toolArgs[i+1].startsWith('--')) {
-                parsedArgs[key] = toolArgs[i+1];
-                i++;
-            } else {
-                parsedArgs[key] = true;
-            }
-        }
-    }
+    const parsedArgs: any = parseCliArgs(toolArgs);
 
     try {
         let result: string;
