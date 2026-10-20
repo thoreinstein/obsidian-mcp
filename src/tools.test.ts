@@ -389,3 +389,18 @@ describe('obsidian_get_orphans', () => {
     expect(await runTool('obsidian_get_orphans', { subfolder: 'sub' }, ctx)).toBe('No orphans found.');
   });
 });
+
+describe('links inside code are not links', () => {
+  beforeEach(async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), 'example: `[[b]]` and `[[Ghost]]`\n```\n[[b]]\n```\n');
+  });
+  it('get_backlinks ignores them', async () => {
+    expect(await runTool('obsidian_get_backlinks', { file_name: 'b' }, ctx)).toBe('No backlinks found for "[[b]]".');
+  });
+  it('get_broken_links ignores them', async () => {
+    expect(await runTool('obsidian_get_broken_links', {}, ctx)).toBe('No broken links found.');
+  });
+  it('get_orphans ignores them', async () => {
+    expect(await runTool('obsidian_get_orphans', { subfolder: 'sub' }, ctx)).toBe('Found 1 orphan(s):\n- sub/b.md');
+  });
+});

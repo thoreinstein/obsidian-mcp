@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
-import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, validateFrontmatter, resolveVaultPath, FRONTMATTER_OPTIONS } from './utils.js';
+import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, splitCode, validateFrontmatter, resolveVaultPath, FRONTMATTER_OPTIONS } from './utils.js';
 
 export interface ToolContext {
   getVaultPath(override?: string): string;
@@ -311,7 +311,8 @@ async function findBacklinks(vp: string, target: string): Promise<string[]> {
     await Promise.all(batch.map(async (f) => {
       try {
         const content = await fs.readFile(path.join(vp, f), 'utf-8');
-        if (linkRegex.test(content)) backlinks.push(f);
+        const prose = splitCode(content).filter(seg => !seg.code).map(seg => seg.text).join('\n');
+        if (linkRegex.test(prose)) backlinks.push(f);
       } catch { }
     }));
   }

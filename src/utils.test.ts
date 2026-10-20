@@ -20,6 +20,7 @@ import {
   noteOutline,
   buildInstructions,
   rewriteWikilinks,
+  extractWikilinks,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -281,5 +282,19 @@ describe('rewriteWikilinks', () => {
   });
   it('leaves bare links alone when rewriteBare is false', () => {
     expect(rewriteWikilinks('[[Old]] [[working/Old]]', from, to, false)).toBe('[[Old]] [[archive/New]]');
+  });
+});
+
+describe('wikilinks in code', () => {
+  const md = 'real [[A]] and `[[B]]`\n```\n[[C]]\n```\n~~~md\n[[D]] ```\n~~~\nafter [[E]] ``x [[F]]``\n';
+  it('extractWikilinks skips inline code and fenced blocks', () => {
+    expect(extractWikilinks(md)).toEqual(['A', 'E']);
+  });
+  it('rewriteWikilinks leaves links in code unchanged', () => {
+    const from = { name: 'C', path: 'x/C' }, to = { name: 'Z', path: 'x/Z' };
+    expect(rewriteWikilinks('[[C]] `[[C]]`\n```\n[[C]]\n```\n[[C]]', from, to, true)).toBe('[[Z]] `[[C]]`\n```\n[[C]]\n```\n[[Z]]');
+  });
+  it('treats an unclosed fence as code to the end', () => {
+    expect(extractWikilinks('[[A]]\n```\n[[B]]')).toEqual(['A']);
   });
 });

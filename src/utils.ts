@@ -24,10 +24,52 @@ export function extractWikilinks(content: string): string[] {
   const regex = /\[\[(.*?)(?:\|.*?)?\]\]/g;
   const links: string[] = [];
   let match;
-  while ((match = regex.exec(content)) !== null) {
+  const prose = splitCode(content).filter(seg => !seg.code).map(seg => seg.text).join('\n');
+  while ((match = regex.exec(prose)) !== null) {
     links.push(match[1]);
   }
   return [...new Set(links)];
+}
+
+/**
+ * Split markdown into code and prose segments that join back to the original text. Code is fenced blocks
+ * (``` or ~~~, unclosed runs to the end) and inline spans (`x`, ``x``), whose wikilinks are examples, not links.
+ */
+export function splitCode(content: string): Array<{ code: boolean; text: string }> {
+  const segs: Array<{ code: boolean; text: string }> = [];
+  const push = (code: boolean, text: string) => {
+    if (!text) return;
+    const last = segs[segs.length - 1];
+    if (last && last.code === code) last.text += text;
+    else segs.push({ code, text });
+  };
+  const pushProse = (text: string) => {
+    let i = 0;
+    for (const m of text.matchAll(/(`+)[^`][\s\S]*?(?<!`)\1(?!`)/g)) {
+      push(false, text.slice(i, m.index));
+      push(true, m[0]);
+      i = m.index! + m[0].length;
+    }
+    push(false, text.slice(i));
+  };
+  let fence: string | null = null;
+  let prose = '';
+  for (const line of content.split(/(?<=\n)/)) {
+    const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/)?.[1][0];
+    if (fence === null && marker) {
+      pushProse(prose);
+      prose = '';
+      fence = marker;
+      push(true, line);
+    } else if (fence !== null) {
+      if (marker === fence) fence = null;
+      push(true, line);
+    } else {
+      prose += line;
+    }
+  }
+  pushProse(prose);
+  return segs;
 }
 
 /**
@@ -47,7 +89,7 @@ export function buildLinkResolver(allFiles: string[]): (target: string) => strin
 /**
  * Point wikilinks (and embeds) at a moved note, keeping any #heading and |alias. Path-style links matching
  * `from.path` become `to.path`; bare links matching `from.name` become `to.name` only when `rewriteBare` is set.
- * Names and paths have no `.md` extension; matching is case-insensitive.
+ * Names and paths have no `.md` extension; matching is case-insensitive. Links inside code are left alone.
  */
 export function rewriteWikilinks(
   content: string,
@@ -55,11 +97,12 @@ export function rewriteWikilinks(
   to: { name: string; path: string },
   rewriteBare: boolean,
 ): string {
-  return content.replace(/(\[\[)([^\]|#]+)/g, (m, open: string, target: string) => {
+  const rewrite = (text: string) => text.replace(/(\[\[)([^\]|#]+)/g, (m, open: string, target: string) => {
     const t = target.toLowerCase();
     if (target.includes('/')) return t === from.path.toLowerCase() ? open + to.path : m;
     return rewriteBare && t === from.name.toLowerCase() ? open + to.name : m;
   });
+  return splitCode(content).map(seg => (seg.code ? seg.text : rewrite(seg.text))).join('');
 }
 
 export interface SectionRange {
