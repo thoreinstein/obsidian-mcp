@@ -311,6 +311,18 @@ async function assertValidFrontmatter(vp: string, relPath: string, content: stri
   if (errors.length > 0) throw new Error(`Frontmatter invalid for ${relPath}: ${errors.join('; ')}`);
 }
 
+/**
+ * resolveVaultPath, then refuse paths under the schema's `readonly` prefixes.
+ * The prefix check runs on the normalized vault-relative path, so `sub/../engram/x.md` can't slip past `engram/`.
+ */
+async function resolveWritablePath(vp: string, relPath: string): Promise<string> {
+  const abs = await resolveVaultPath(vp, relPath);
+  const readonly = (await loadVaultSchema(vp))?.readonly ?? [];
+  const rel = path.relative(path.resolve(vp), abs).split(path.sep).join('/');
+  if (readonly.some(p => rel.startsWith(p))) throw new Error(`Path is read-only: ${relPath}`);
+  return abs;
+}
+
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
   const vaultArg = () => ctx.getVaultPath(args.vault_path as string | undefined);
 
@@ -353,7 +365,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_create_note': {
       const vp = vaultArg();
-      const filePath = await resolveVaultPath(vp, String(args.file_path));
+      const filePath = await resolveWritablePath(vp, String(args.file_path));
       const content = String(args.content || '');
       await assertValidFrontmatter(vp, String(args.file_path), content);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -368,7 +380,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_append_note': {
       const vp = vaultArg();
-      const filePath = await resolveVaultPath(vp, String(args.file_path));
+      const filePath = await resolveWritablePath(vp, String(args.file_path));
       const content = String(args.content || '');
       await fs.appendFile(filePath, '\n' + content, 'utf-8');
       ctx.reindex(vp, String(args.file_path));
@@ -473,8 +485,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_move_note': {
       const vp = vaultArg();
-      const source = await resolveVaultPath(vp, String(args.source_path));
-      const dest = await resolveVaultPath(vp, String(args.dest_path));
+      const source = await resolveWritablePath(vp, String(args.source_path));
+      const dest = await resolveWritablePath(vp, String(args.dest_path));
       // fs.rename replaces an existing file. Same inode means a case-only rename on a case-insensitive filesystem.
       const destStat = await fs.stat(dest).catch(() => null);
       if (destStat && destStat.ino !== (await fs.stat(source)).ino) throw new Error(`Destination already exists: ${args.dest_path}`);
@@ -485,7 +497,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_update_frontmatter': {
       const vp = vaultArg();
-      const filePath = await resolveVaultPath(vp, String(args.file_path));
+      const filePath = await resolveWritablePath(vp, String(args.file_path));
       const fileContent = await fs.readFile(filePath, 'utf-8');
       // CLI passes `updates` as a JSON string; MCP passes an object.
       const rawUpdates = typeof args.updates === 'string' ? JSON.parse(args.updates) : args.updates;
@@ -500,7 +512,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_replace_section': {
       const vp = vaultArg();
-      const filePath = await resolveVaultPath(vp, String(args.file_path));
+      const filePath = await resolveWritablePath(vp, String(args.file_path));
       const heading = String(args.heading);
       const content = String(args.content);
       const fileContent = await fs.readFile(filePath, 'utf-8');
@@ -512,7 +524,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_insert_at_heading': {
       const vp = vaultArg();
-      const filePath = await resolveVaultPath(vp, String(args.file_path));
+      const filePath = await resolveWritablePath(vp, String(args.file_path));
       const heading = String(args.heading);
       const content = String(args.content);
       const position = (args.position || 'end') as 'beginning' | 'end';
@@ -549,7 +561,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_replace_in_note': {
       const vp = vaultArg();
-      const filePath = await resolveVaultPath(vp, String(args.file_path));
+      const filePath = await resolveWritablePath(vp, String(args.file_path));
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const updated = replaceInNote(fileContent, String(args.old_text), String(args.new_text ?? ''));
       await fs.writeFile(filePath, updated, 'utf-8');

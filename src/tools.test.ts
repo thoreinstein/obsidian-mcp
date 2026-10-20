@@ -269,3 +269,46 @@ describe('no silent overwrites', () => {
     expect(await fs.readdir(vp)).toContain('A.md');
   });
 });
+
+describe('readonly paths', () => {
+  const original = '---\ntype: plan\n---\n## H\nbody\n';
+  beforeEach(async () => {
+    await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ readonly: ['engram/'], rules: [] }));
+    await fs.mkdir(path.join(vp, 'engram'));
+    await fs.writeFile(path.join(vp, 'engram', 'm.md'), original);
+  });
+
+  const writes: Array<[string, Record<string, unknown>]> = [
+    ['obsidian_create_note', { file_path: 'engram/new.md', content: 'x' }],
+    ['obsidian_append_note', { file_path: 'engram/m.md', content: 'x' }],
+    ['obsidian_update_frontmatter', { file_path: 'engram/m.md', key: 'status', value: 'done' }],
+    ['obsidian_replace_section', { file_path: 'engram/m.md', heading: 'H', content: 'x' }],
+    ['obsidian_insert_at_heading', { file_path: 'engram/m.md', heading: 'H', content: 'x' }],
+    ['obsidian_replace_in_note', { file_path: 'engram/m.md', old_text: 'body', new_text: 'x' }],
+    ['obsidian_move_note', { source_path: 'engram/m.md', dest_path: 'm.md' }],
+    ['obsidian_move_note', { source_path: 'a.md', dest_path: 'engram/a.md' }],
+    ['obsidian_create_note', { file_path: 'sub/../engram/sneaky.md', content: 'x' }],
+  ];
+  for (const [tool, args] of writes) {
+    it(`${tool} refuses ${JSON.stringify(args)}`, async () => {
+      await expect(runTool(tool, args, ctx)).rejects.toThrow(/is read-only/);
+      expect(await fs.readFile(path.join(vp, 'engram', 'm.md'), 'utf-8')).toBe(original);
+      expect((await fs.readdir(path.join(vp, 'engram'))).sort()).toEqual(['m.md']);
+      expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('hello a');
+    });
+  }
+
+  it('still allows writes outside readonly prefixes and reads inside them', async () => {
+    await runTool('obsidian_append_note', { file_path: 'a.md', content: 'more' }, ctx);
+    expect(await runTool('obsidian_read_note', { file_path: 'engram/m.md' }, ctx)).toBe(original);
+  });
+
+  it('exempts the daily note tools', async () => {
+    await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ readonly: ['Daily/'], rules: [] }));
+    await fs.mkdir(path.join(vp, '.obsidian'));
+    await fs.writeFile(path.join(vp, '.obsidian', 'daily-notes.json'), JSON.stringify({ folder: 'Daily' }));
+    await runTool('obsidian_append_daily_log', { heading: 'Log', content: 'did a thing' }, ctx);
+    const [daily] = await fs.readdir(path.join(vp, 'Daily'));
+    expect(await fs.readFile(path.join(vp, 'Daily', daily), 'utf-8')).toContain('did a thing');
+  });
+});

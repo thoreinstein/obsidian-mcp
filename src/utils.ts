@@ -317,6 +317,8 @@ export function buildInstructions(guide: string | null): string {
 
 export interface VaultSchema {
   exclude?: string[];
+  /** Path prefixes no write tool may change, create, or move notes into or out of. Daily note tools are exempt. */
+  readonly?: string[];
   rules: Array<{ prefix: string; required?: string[]; allowed?: Record<string, string[]> }>;
 }
 

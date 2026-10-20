@@ -67,13 +67,14 @@ The server reads these optional files from the vault; nothing vault-specific is 
 ```json
 {
   "exclude": ["engram/"],
+  "readonly": ["engram/", ".manifest.json"],
   "rules": [
     { "prefix": "Engineering/", "required": ["type"], "allowed": { "type": ["plan", "pattern"] } }
   ]
 }
 ```
 
-`exclude` lists path prefixes skipped by validation. The first rule whose `prefix` matches the path applies (`""` matches all), with `required` fields and `allowed` values per field.
+`exclude` lists path prefixes skipped by validation. `readonly` lists path prefixes no write tool may change, create, or move notes into or out of; the daily note tools are exempt. The first rule whose `prefix` matches the path applies (`""` matches all), with `required` fields and `allowed` values per field.
 
 ## Data paths
 
