@@ -773,15 +773,19 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const content = String(args.content);
       const filePath = await resolveVaultPath(vp, await resolveDailyNotePath(vp, new Date()));
       const title = path.basename(filePath, '.md');
-      let fileContent = '';
-      let mtimeMs: number | undefined;
+      let read: { content: string; mtimeMs: number };
       try {
-        ({ content: fileContent, mtimeMs } = await readForEdit(filePath));
+        read = await readForEdit(filePath);
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        // Create exclusively so a note Obsidian creates from its template at the same moment is kept.
         await fs.mkdir(path.dirname(filePath), { recursive: true });
-        fileContent = `# ${title}\n\n`;
+        await fs.writeFile(filePath, `# ${title}\n\n`, { flag: 'wx' }).catch((err: NodeJS.ErrnoException) => {
+          if (err.code !== 'EEXIST') throw err;
+        });
+        read = await readForEdit(filePath);
       }
+      let fileContent = read.content;
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const entry = `\n- [${timestamp}] ${content}`;
       const range = findSectionRange(fileContent, heading);
@@ -790,7 +794,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       } else {
         fileContent += `\n\n## ${heading}${entry}`;
       }
-      await writeAtomic(filePath, fileContent, { expectedMtimeMs: mtimeMs, displayPath: path.relative(vp, filePath) });
+      await writeAtomic(filePath, fileContent, { expectedMtimeMs: read.mtimeMs, displayPath: path.relative(vp, filePath) });
       ctx.reindex(vp, path.relative(vp, filePath));
       return `Appended to daily note under "${heading}"`;
     }

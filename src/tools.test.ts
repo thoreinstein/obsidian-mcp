@@ -431,6 +431,44 @@ describe('readonly paths', () => {
   });
 });
 
+describe('obsidian_append_daily_log creation', () => {
+  beforeEach(async () => {
+    await fs.mkdir(path.join(vp, '.obsidian'));
+    await fs.writeFile(path.join(vp, '.obsidian', 'daily-notes.json'), JSON.stringify({ folder: 'Daily' }));
+  });
+  const dailyFile = async () => {
+    const [daily] = await fs.readdir(path.join(vp, 'Daily'));
+    return path.join(vp, 'Daily', daily);
+  };
+
+  it("creates today's note then appends to it", async () => {
+    await runTool('obsidian_append_daily_log', { heading: 'Log', content: 'first' }, ctx);
+    await runTool('obsidian_append_daily_log', { heading: 'Log', content: 'second' }, ctx);
+    const file = await dailyFile();
+    const text = await fs.readFile(file, 'utf-8');
+    expect(text).toContain(`# ${path.basename(file, '.md')}`);
+    expect(text).toContain('first');
+    expect(text).toContain('second');
+    expect(text.match(/## Log/g)).toHaveLength(1);
+  });
+
+  it('keeps a note created by someone else first', async () => {
+    const readForEdit = vi.mocked(noteWrite.readForEdit);
+    const real = readForEdit.getMockImplementation()!;
+    // First read reports ENOENT, as if the note appears right after the check.
+    readForEdit.mockImplementationOnce(async (abs: string) => {
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      await fs.writeFile(abs, 'TEMPLATE-BODY\n');
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    });
+    await runTool('obsidian_append_daily_log', { heading: 'Log', content: 'entry' }, ctx);
+    const text = await fs.readFile(await dailyFile(), 'utf-8');
+    expect(text).toContain('TEMPLATE-BODY');
+    expect(text).toContain('entry');
+    readForEdit.mockImplementation(real);
+  });
+});
+
 describe('obsidian_get_broken_links path-style links', () => {
   it('resolves [[folder/note]] and still flags missing ones', async () => {
     await fs.writeFile(path.join(vp, 'a.md'), 'see [[Sub/B]], [[sub/b#H|alias]] and [[nope/b]]');
