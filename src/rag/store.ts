@@ -7,6 +7,7 @@ import matter from 'gray-matter';
 import md5 from 'md5';
 import { Embedder, MODEL_SLUG } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
+import { withCommitRetry } from './retry.js';
 import { buildWhereClause, dedupeByPath, rrfMerge, SearchFilters } from '../utils.js';
 
 function chunkingOptionsFromEnv(): ChunkingOptions {
@@ -30,6 +31,9 @@ const META_PATH = path.join(DATA_DIR, `index-meta${MODEL_SLUG}.json`);
 // in-flight reads of a recent version still find their files.
 const VERSION_RETENTION_MS = 60 * 60 * 1000;
 
+/** indexFile/removeFile compact and prune old versions once per this many writes. */
+export const OPTIMIZE_EVERY_WRITES = 20;
+
 function optimizeOptions() {
   return { cleanupOlderThan: new Date(Date.now() - VERSION_RETENTION_MS) };
 }
@@ -41,6 +45,8 @@ interface NoteChunk extends ChunkMetadata {
 export class VaultIndexer {
   private db: lancedb.Connection | null = null;
   private table: lancedb.Table | null = null;
+  private writesSinceOptimize = 0;
+  private ftsReady = false;
 
   constructor() {}
 
@@ -67,7 +73,7 @@ export class VaultIndexer {
     if (tableNames.includes('notes')) {
         this.table = await db.openTable('notes');
         if (data && data.length > 0) {
-            await this.table.add(data);
+            await withCommitRetry(() => this.table!.add(data));
         }
     } else {
         if (!data || data.length === 0) {
@@ -156,7 +162,16 @@ export class VaultIndexer {
       const meta = extractNoteMeta(relativePath, data, body, mtime);
       const { textsToEmbed, chunkMetadata } = buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv(), meta);
 
-      if (textsToEmbed.length > 0) {
+      if (textsToEmbed.length === 0) {
+          // Emptied note: its old chunks must leave the index. (An embedding failure below must not.)
+          const table = await this.getTable();
+          if (table) await withCommitRetry(() => table.delete(`path = '${relativePath.replace(/'/g, "''")}'`));
+          await this.forgetHash(relativePath);
+          await this.countWrite();
+          return { success: true, chunks: 0, message: 'No content to index; removed existing chunks.' };
+      }
+
+      {
           const chunks = await this.embedWithFallback(embedder, textsToEmbed, chunkMetadata);
           if (chunks.length === 0) {
               return { success: false, message: `Failed to embed content for ${relativePath}.` };
@@ -168,17 +183,20 @@ export class VaultIndexer {
           if (!tableNames.includes('notes')) {
               this.table = await db.createTable('notes', chunkRows);
           } else {
-              this.table = await db.openTable('notes');
+              const table = this.table = await db.openTable('notes');
               // Delete old chunks for this file
-              await this.table.delete(`path = '${relativePath.replace(/'/g, "''")}'`);
-              await this.table.add(chunkRows);
+              await withCommitRetry(() => table.delete(`path = '${relativePath.replace(/'/g, "''")}'`));
+              await withCommitRetry(() => table.add(chunkRows));
           }
-          await this.table.optimize(optimizeOptions());
-          if (!(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
+          await this.countWrite();
+          if (!this.ftsReady) {
+              if (!(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
+              this.ftsReady = true;
+          }
+          await this.setHash(relativePath, md5(content));
           console.error(`Indexed ${chunks.length} chunks for ${relativePath}.`);
           return { success: true, chunks: chunks.length };
       }
-      return { success: false, message: "No content to index or table not available." };
     } catch (err) {
       console.error(`Failed to index file ${filePath}:`, err);
       return { success: false, message: String(err) };
@@ -188,7 +206,28 @@ export class VaultIndexer {
   public async removeFile(relativePath: string) {
     const table = await this.getTable();
     if (!table) return;
-    await table.delete(`path = '${relativePath.replace(/'/g, "''")}'`);
+    await withCommitRetry(() => table.delete(`path = '${relativePath.replace(/'/g, "''")}'`));
+    await this.forgetHash(relativePath);
+    await this.countWrite();
+  }
+
+  private async setHash(relativePath: string, hash: string) {
+    await this.writeHashes({ ...(await this.readHashes()), [relativePath]: hash });
+  }
+
+  private async forgetHash(relativePath: string) {
+    const hashes = await this.readHashes();
+    if (!(relativePath in hashes)) return;
+    delete hashes[relativePath];
+    await this.writeHashes(hashes);
+  }
+
+  /** Compact and prune old versions every OPTIMIZE_EVERY_WRITES single-note writes, not on each one. */
+  private async countWrite() {
+    if (++this.writesSinceOptimize < OPTIMIZE_EVERY_WRITES) return;
+    this.writesSinceOptimize = 0;
+    const table = this.table ?? await this.getTable();
+    if (table) await withCommitRetry(() => table.optimize(optimizeOptions()));
   }
 
   public async indexVault(vaultPath: string, force: boolean = false) {
@@ -330,7 +369,8 @@ export class VaultIndexer {
         for (let i = 0; i < pathsToDelete.length; i += DELETE_BATCH) {
           const batch = pathsToDelete.slice(i, i + DELETE_BATCH);
           const escaped = batch.map(p => `'${p.replace(/'/g, "''")}'`);
-          await this.table.delete(`path IN (${escaped.join(', ')})`);
+          const table = this.table;
+          await withCommitRetry(() => table.delete(`path IN (${escaped.join(', ')})`));
         }
       }
       tableInitialized = true;
@@ -373,6 +413,7 @@ export class VaultIndexer {
         const chunkRows = chunks as unknown as Record<string, unknown>[];
 
         if (!tableInitialized) {
+          this.ftsReady = false;
           try {
             await db.dropTable('notes');
           } catch (e) { /* ignore if not exists */ }
@@ -382,7 +423,8 @@ export class VaultIndexer {
           if (!this.table) {
             this.table = await db.openTable('notes');
           }
-          await this.table.add(chunkRows);
+          const table = this.table;
+          await withCommitRetry(() => table.add(chunkRows));
         }
 
         indexedChunks += chunks.length;
@@ -422,7 +464,9 @@ export class VaultIndexer {
 
     // Compact fragments and clean up old versions to prevent stale references
     if (this.table) {
-      await this.table.optimize(optimizeOptions());
+      const table = this.table;
+      await withCommitRetry(() => table.optimize(optimizeOptions()));
+      this.writesSinceOptimize = 0;
       if (!canIncremental || !(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
     }
 
@@ -439,7 +483,8 @@ export class VaultIndexer {
 
   /** Build (or rebuild) the full-text index on chunk text. */
   private async ensureFtsIndex(table: lancedb.Table) {
-    await table.createIndex('text', { config: lancedb.Index.fts(), replace: true });
+    await withCommitRetry(() => table.createIndex('text', { config: lancedb.Index.fts(), replace: true }));
+    this.ftsReady = true;
   }
 
   private async hasFtsIndex(table: lancedb.Table) {

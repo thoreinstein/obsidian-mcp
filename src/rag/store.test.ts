@@ -144,14 +144,21 @@ describe('VaultIndexer.search (hybrid)', () => {
 describe('VaultIndexer version cleanup', () => {
   it('prunes versions older than the retention window on write', async () => {
     const lancedb = await import('@lancedb/lancedb');
+    const { OPTIMIZE_EVERY_WRITES, VaultIndexer } = await import('./store.js');
+    const fresh = new VaultIndexer(); // write counter starts at 0, so the Nth write optimizes
     const table = await (await lancedb.connect(path.join(dataDir, 'lancedb'))).openTable('notes');
     expect((await table.listVersions()).length).toBeGreaterThan(2);
     const realNow = Date.now();
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(realNow + 2 * 60 * 60 * 1000);
     try {
-      await fs.writeFile(path.join(vault, 'prune.md'), '# Prune\nA note written to trigger version cleanup. Ref PRUNE-UNIQ.\n');
-      const res = await indexer.indexFile(vault, 'prune.md');
-      expect(res.success).toBe(true);
+      for (let i = 0; i < OPTIMIZE_EVERY_WRITES; i++) {
+        const rel = i === 0 ? 'prune.md' : `prune-${i}.md`;
+        await fs.writeFile(path.join(vault, rel), i === 0
+          ? '# Prune\nA note written to trigger version cleanup. Ref PRUNE-UNIQ.\n'
+          : `# Filler ${i}\nFiller note ${i} on unrelated gardening topics such as compost and watering.\n`);
+        const res = await fresh.indexFile(vault, rel);
+        expect(res.success).toBe(true);
+      }
     } finally {
       nowSpy.mockRestore();
     }

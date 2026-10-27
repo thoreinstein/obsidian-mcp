@@ -108,3 +108,42 @@ describe('crash safety', () => {
     expect(Object.keys(hashes).sort()).toEqual(Object.keys(NOTES).sort());
   }, 120_000);
 });
+
+describe('single-note write path', () => {
+  async function rowsFor(rel: string) {
+    const table = await (indexer as any).getTable();
+    return table.query().where(`path = '${rel}'`).toArray();
+  }
+
+  it('an emptied note leaves search', async () => {
+    await fs.writeFile(path.join(vaultA, 'n.md'), '# N\nThis note carries the unusual marker EMPTYTOKEN-1 inside a sentence.\n');
+    expect((await indexer.indexFile(vaultA, 'n.md')).success).toBe(true);
+    expect((await indexer.search('EMPTYTOKEN-1'))[0].path).toBe('n.md');
+
+    await fs.writeFile(path.join(vaultA, 'n.md'), '# N\n');
+    const res = await indexer.indexFile(vaultA, 'n.md');
+    expect(res).toMatchObject({ success: true, chunks: 0 });
+    expect(await rowsFor('n.md')).toHaveLength(0);
+    const hits = await indexer.search('EMPTYTOKEN-1');
+    expect(hits.map((h: any) => h.path)).not.toContain('n.md');
+    const hashes = JSON.parse(await fs.readFile(hashFile, 'utf-8'));
+    expect(hashes['n.md']).toBeUndefined();
+  }, 120_000);
+
+  it('indexFile keeps the hash file current', async () => {
+    await indexer.indexVault(vaultA);
+    await fs.writeFile(path.join(vaultA, 'b.md'), '# Beta\nThe beta note now talks about circuit breakers and bulkheads in depth.\n');
+    expect((await indexer.indexFile(vaultA, 'b.md')).success).toBe(true);
+    const res = await indexer.indexVault(vaultA);
+    expect(res.message).toMatch(/up to date/);
+  }, 120_000);
+
+  it('a single indexFile does not optimize', async () => {
+    const table = await (indexer as any).getTable();
+    const before = (await table.listVersions()).length;
+    await fs.writeFile(path.join(vaultA, 'c.md'), '# Gamma\nThe gamma note was edited to mention quarterly capacity planning exercises.\n');
+    expect((await indexer.indexFile(vaultA, 'c.md')).success).toBe(true);
+    await table.checkoutLatest();
+    expect((await table.listVersions()).length - before).toBeLessThanOrEqual(2);
+  }, 120_000);
+});
