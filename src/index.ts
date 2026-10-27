@@ -111,6 +111,7 @@ const ctx: ToolContext = {
     // One-shot CLI exits right after the tool returns, so a background reindex would be killed mid-flight.
     // Keep the CLI's historical behavior (no auto-reindex on writes).
     ctx.reindex = () => {};
+    ctx.allowForceReindex = true;
 
     const parsedArgs: any = parseCliArgs(toolArgs);
 

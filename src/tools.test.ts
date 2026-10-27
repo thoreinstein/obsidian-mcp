@@ -94,8 +94,15 @@ describe('runTool', () => {
   it('coerces CLI string force_reindex', async () => {
     const indexVault = vi.fn(async () => ({ ok: true }));
     ctx.indexer = { indexVault } as any;
+    ctx.allowForceReindex = true;
     await runTool('obsidian_rag_index', { force_reindex: 'true' }, ctx);
     expect(indexVault).toHaveBeenCalledWith(vp, true);
+  });
+  it('rag_index refuses force_reindex over MCP', async () => {
+    const indexVault = vi.fn(async () => ({ ok: true }));
+    ctx.indexer = { indexVault } as any;
+    await expect(runTool('obsidian_rag_index', { force_reindex: true }, ctx)).rejects.toThrow('force_reindex is CLI-only');
+    expect(indexVault).not.toHaveBeenCalled();
   });
   it('passes RAG filters and prints Section only for headed hits', async () => {
     const search = vi.fn(async () => [
@@ -179,6 +186,10 @@ describe('TOOL_DEFINITIONS', () => {
   it('has unique names', () => {
     const names = TOOL_DEFINITIONS.map(t => t.name);
     expect(new Set(names).size).toBe(names.length);
+  });
+  it('does not advertise force_reindex on obsidian_rag_index', () => {
+    const def = TOOL_DEFINITIONS.find(t => t.name === 'obsidian_rag_index')!;
+    expect(Object.keys((def.inputSchema as any).properties)).not.toContain('force_reindex');
   });
 });
 

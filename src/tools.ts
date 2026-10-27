@@ -12,6 +12,7 @@ export interface ToolContext {
   setVaultPath(p: string): Promise<void>;
   indexer: VaultIndexer;
   reindex(vaultPath: string, relativePath: string, removedPath?: string): void;
+  allowForceReindex?: boolean;
 }
 
 export class UnknownToolError extends Error {
@@ -125,13 +126,12 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_rag_index',
-    description: 'Index the vault for semantic search (RAG). If file_path is provided, only that file is re-indexed. Incremental by default — only re-embeds changed files. Use force_reindex to rebuild from scratch.',
+    description: 'Index the vault for semantic search (RAG). If file_path is provided, only that file is re-indexed. Incremental by default — only re-embeds changed files.',
     inputSchema: {
       type: 'object',
       properties: {
         vault_path: { type: 'string', description: 'Optional vault path override' },
         file_path: { type: 'string', description: 'Relative path to a specific note to re-index' },
-        force_reindex: { type: 'boolean', description: 'Force full re-index, ignoring cached file hashes (default: false)' },
       },
     },
   },
@@ -564,6 +564,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const fp = args.file_path ? String(args.file_path) : null;
       const rel = fp ? vaultRel(vp, await resolveVaultPath(vp, fp)) : null;
       const force = isTrue(args.force_reindex) || isTrue(args.force);
+      if (force && !ctx.allowForceReindex) {
+        throw new McpError(ErrorCode.InvalidParams, 'force_reindex is CLI-only: run node dist/index.js obsidian_rag_index --force_reindex');
+      }
       const result = rel ? await ctx.indexer.indexFile(vp, rel) : await ctx.indexer.indexVault(vp, force);
       return JSON.stringify(result);
     }

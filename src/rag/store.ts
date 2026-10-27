@@ -8,6 +8,7 @@ import md5 from 'md5';
 import { Embedder, MODEL_SLUG } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
 import { withCommitRetry } from './retry.js';
+import { planBatches } from './batching.js';
 import { buildWhereClause, dedupeByPath, rrfMerge, SearchFilters } from '../utils.js';
 
 function chunkingOptionsFromEnv(): ChunkingOptions {
@@ -257,6 +258,8 @@ export class VaultIndexer {
 
     const batchSizeRaw = Number(process.env.OBSIDIAN_RAG_EMBED_BATCH_SIZE ?? '48');
     const batchSize = Number.isFinite(batchSizeRaw) && batchSizeRaw > 0 ? Math.min(Math.floor(batchSizeRaw), 256) : 48;
+    const batchCharsRaw = Number(process.env.OBSIDIAN_RAG_EMBED_BATCH_CHARS ?? '12000');
+    const batchChars = Number.isFinite(batchCharsRaw) && batchCharsRaw > 0 ? Math.floor(batchCharsRaw) : 12000;
     const useProgressBar = process.stderr.isTTY === true;
     const progressInterval = 100;
 
@@ -436,9 +439,9 @@ export class VaultIndexer {
       let batchesSinceWrite = 0;
       let pendingWrite: Promise<void> | null = null;
 
-      for (let i = 0; i < sortedTexts.length; i += batchSize) {
-        const batchTexts = sortedTexts.slice(i, i + batchSize);
-        const batchMeta = sortedMeta.slice(i, i + batchSize);
+      for (const [start, end] of planBatches(sortedTexts.map(t => t.length), batchSize, batchChars)) {
+        const batchTexts = sortedTexts.slice(start, end);
+        const batchMeta = sortedMeta.slice(start, end);
 
         const embeddedChunks = await this.embedWithFallback(embedder, batchTexts, batchMeta);
         pendingChunks.push(...embeddedChunks);

@@ -29,6 +29,7 @@ Notable parameters:
 - `obsidian_move_note`: rewrites wikilinks that point at the moved note unless `update_links` is false; refuses an existing destination
 - `limit` on `obsidian_search_notes`, `obsidian_rag_query` and `obsidian_get_related` is clamped to 1..100
 - `obsidian_search_notes` with `regex: true` has a 2 s time budget and errors `Regex search timed out after 2000 ms`
+- `obsidian_rag_index`: `force_reindex` is CLI-only (`node dist/index.js obsidian_rag_index --force_reindex`); the MCP tool rejects it
 - `obsidian_rag_query`: `max_distance` (CLI `--max-distance`) drops semantic hits with vector distance above n; keyword hits are kept; no default
 - Tool arguments are validated against each tool's schema; `obsidian_update_frontmatter` single-key `value` must be a string (JSON-stringify arrays and objects, or use `updates`)
 
@@ -98,6 +99,8 @@ Canonical, shared by all clients:
 Override the directory with `OBSIDIAN_MCP_DATA_DIR`, the config file with `OBSIDIAN_MCP_CONFIG`.
 
 The embedding model defaults to `Xenova/all-MiniLM-L6-v2`; set `OBSIDIAN_RAG_MODEL` to use another. Non-default models get their own index (`lancedb-<model>/`, `file-hashes-<model>.json`, with `/` in the model name replaced by `__`), so switching models never mixes embeddings. Reindex after switching.
+
+Embedding batches hold at most `OBSIDIAN_RAG_EMBED_BATCH_SIZE` chunks (default 48) and `OBSIDIAN_RAG_EMBED_BATCH_CHARS` characters (default 12000); the character cap bounds peak memory on long chunks.
 
 The index rebuilds incrementally from scratch on first use, so migrating from the old plugin locations needs no manual step.
 
