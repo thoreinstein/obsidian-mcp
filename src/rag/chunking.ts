@@ -46,31 +46,43 @@ export function splitTextForEmbedding(text: string, maxChars: number = DEFAULTS.
   return segments;
 }
 
-export function mergeSegmentsForEmbedding(segments: string[], targetChars: number): string[] {
+/** A kept segment: `embed` is the whitespace-normalized text, `display` what is stored for readers. */
+export interface Segment {
+  embed: string;
+  display: string;
+}
+
+/**
+ * Merge segments up to `targetChars`, measured on the normalized `embed` text so
+ * chunk boundaries do not depend on the display text.
+ */
+export function mergeSegmentsForEmbedding(segments: Segment[], targetChars: number): Segment[] {
   if (segments.length === 0) return [];
-  const merged: string[] = [];
-  let current = '';
+  const merged: Segment[] = [];
+  let current: Segment | null = null;
 
   for (const segment of segments) {
-    if (segment.length >= targetChars) {
-      if (current.length > 0) {
+    if (segment.embed.length >= targetChars) {
+      if (current) {
         merged.push(current);
-        current = '';
+        current = null;
       }
       merged.push(segment);
       continue;
     }
 
-    const candidate = current.length > 0 ? `${current}\n\n${segment}` : segment;
-    if (candidate.length <= targetChars) {
+    const candidate: Segment = current
+      ? { embed: `${current.embed}\n\n${segment.embed}`, display: `${current.display}\n\n${segment.display}` }
+      : segment;
+    if (candidate.embed.length <= targetChars) {
       current = candidate;
     } else {
-      if (current.length > 0) merged.push(current);
+      if (current) merged.push(current);
       current = segment;
     }
   }
 
-  if (current.length > 0) merged.push(current);
+  if (current) merged.push(current);
   return merged;
 }
 
@@ -150,7 +162,7 @@ export function buildEmbeddingInputs(relativePath: string, body: string, options
   const noteMeta: NoteMeta = meta ?? { title: '', date: '', status: '', type: '' };
 
   for (const section of splitByHeadings(body)) {
-    const rawSegments: string[] = [];
+    const rawSegments: Segment[] = [];
     const paragraphs = section.text.split(/\n\s*\n/).filter(p => p.trim().length > 0);
     for (let p = 0; p < paragraphs.length; p++) {
       const paragraph = paragraphs[p].trim();
@@ -159,7 +171,10 @@ export function buildEmbeddingInputs(relativePath: string, body: string, options
       if (paragraph.length + bonus < minChunkChars) continue;
       const segments = splitTextForEmbedding(paragraph, maxChunkChars);
       for (const segment of segments) {
-        if (segment.length + (segments.length === 1 ? bonus : 0) >= minChunkChars) rawSegments.push(segment);
+        if (segment.length + (segments.length === 1 ? bonus : 0) >= minChunkChars) {
+          // A paragraph kept whole stores its original text; split pieces have no original-line mapping.
+          rawSegments.push({ embed: segment, display: segments.length === 1 ? paragraph : segment });
+        }
       }
     }
 
@@ -167,15 +182,15 @@ export function buildEmbeddingInputs(relativePath: string, body: string, options
     // (checklists, boilerplate sections) are anchored to where they came from.
     const label = [noteMeta.title, section.heading].filter(Boolean).join(' > ');
     const base = label ? `${label} (${relativePath})` : relativePath;
-    for (const text of mergeSegmentsForEmbedding(rawSegments, targetChunkChars)) {
+    for (const { embed, display } of mergeSegmentsForEmbedding(rawSegments, targetChunkChars)) {
       chunkMetadata.push({
         id: md5(`${relativePath}-${chunkMetadata.length}`),
         path: relativePath,
-        text,
+        text: display,
         heading: section.heading,
         ...noteMeta
       });
-      textsToEmbed.push(`${base}\n\n${text}`);
+      textsToEmbed.push(`${base}\n\n${embed}`);
     }
   }
 

@@ -63,3 +63,59 @@ describe('heading-aware chunking edge cases', () => {
     expect(chunkMetadata[0].text).toBe('Blocked on the vendor');
   });
 });
+
+describe('chunk text readability and embed stability', () => {
+  const long = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} talks about the vendor rollout plan in detail.`).join(' ');
+  const bodies = [
+    '# Tasks\nThings to do before the release goes out:\n- first item to complete\n- second item to complete\n- third item to complete\n- fourth item to complete\n- fifth item to complete\n',
+    `# Long\n${long}\n\nA short trailing paragraph that is long enough to keep.`,
+    '# Notes\nFirst short paragraph that is long enough.\n\nSecond short paragraph that is also long enough.\n\nThird short paragraph, again long enough to keep.\n',
+  ];
+  // Captured from the implementation before chunk text stopped being whitespace-collapsed.
+  const expectedTexts: string[][] = [
+  [
+    "Tasks (a/b.md)\n\nThings to do before the release goes out: - first item to complete - second item to complete - third item to complete - fourth item to complete - fifth item to complete"
+  ],
+  [
+    "Long (a/b.md)\n\nSentence number 0 talks about the vendor rollout plan in detail. Sentence number 1 talks about the vendor rollout plan in detail. Sentence number 2 talks about the vendor rollout plan in detail. Sentence number 3 talks about the vendor rollout plan in detail. Sentence number 4 talks about the vendor rollout plan in detail. Sentence number 5 talks about the vendor rollout plan in detail. Sentence number 6 talks about the vendor rollout plan in detail. Sentence number 7 talks about the vendor rollout plan in detail. Sentence number 8 talks about the vendor rollout plan in detail. Sentence number 9 talks about the vendor rollout plan in detail. Sentence number 10 talks about the vendor rollout plan in detail. Sentence number 11 talks about the vendor rollout plan in detail. Sentence number 12 talks about the vendor rollout plan in detail. Sentence number 13 talks about the vendor rollout plan in detail. Sentence number 14 talks about the vendor rollout plan in detail. Sentence number 15 talks about the vendor rollout plan in detail. Sentence number 16 talks about the vendor rollout plan in detail. Sentence number 17 talks about the vendor rollout plan in detail. Sentence number 18 talks about the vendor rollout plan in detail. Sentence number 19 talks about the vendor rollout plan in detail. Sentence number 20 talks about the vendor rollout plan in detail. Sentence number 21 talks about the vendor rollout plan in detail. Sentence number 22 talks about the vendor rollout plan in detail. Sentence number 23 talks about the vendor rollout plan in detail. Sentence number 24 talks about the vendor rollout plan in detail. Sentence number 25 talks about the vendor rollout plan in detail. Sentence number 26 talks about the vendor rollout plan in detail.",
+    "Long (a/b.md)\n\nSentence number 27 talks about the vendor rollout plan in detail. Sentence number 28 talks about the vendor rollout plan in detail. Sentence number 29 talks about the vendor rollout plan in detail. Sentence number 30 talks about the vendor rollout plan in detail. Sentence number 31 talks about the vendor rollout plan in detail. Sentence number 32 talks about the vendor rollout plan in detail. Sentence number 33 talks about the vendor rollout plan in detail. Sentence number 34 talks about the vendor rollout plan in detail. Sentence number 35 talks about the vendor rollout plan in detail. Sentence number 36 talks about the vendor rollout plan in detail. Sentence number 37 talks about the vendor rollout plan in detail. Sentence number 38 talks about the vendor rollout plan in detail. Sentence number 39 talks about the vendor rollout plan in detail.",
+    "Long (a/b.md)\n\nA short trailing paragraph that is long enough to keep."
+  ],
+  [
+    "Notes (a/b.md)\n\nFirst short paragraph that is long enough.\n\nSecond short paragraph that is also long enough.\n\nThird short paragraph, again long enough to keep."
+  ]
+];
+  const expectedIds: string[][] = [
+  [
+    "42e7a46aea8470709bac16ac7278b8eb"
+  ],
+  [
+    "42e7a46aea8470709bac16ac7278b8eb",
+    "8ee6952e8a34809be06b524b90cd7586",
+    "2a21f43ac832a76da2cf71323a2c53e7"
+  ],
+  [
+    "42e7a46aea8470709bac16ac7278b8eb"
+  ]
+];
+
+  it('embed inputs are unchanged', () => {
+    expect(bodies.map(b => buildEmbeddingInputs('a/b.md', b).textsToEmbed)).toEqual(expectedTexts);
+  });
+
+  it('chunk ids are unchanged', () => {
+    expect(bodies.map(b => buildEmbeddingInputs('a/b.md', b).chunkMetadata.map(c => c.id))).toEqual(expectedIds);
+  });
+
+  it('stores list line breaks in chunk text', () => {
+    const { chunkMetadata } = buildEmbeddingInputs('a/b.md', bodies[0]);
+    expect(chunkMetadata[0].text).toContain('\n- ');
+  });
+
+  it('keeps merged paragraphs verbatim and split-paragraph pieces normalized', () => {
+    const { chunkMetadata } = buildEmbeddingInputs('a/b.md', bodies[1]);
+    expect(chunkMetadata[0].text).not.toMatch(/\s{2,}|\n/);
+    const merged = buildEmbeddingInputs('a/b.md', bodies[2]).chunkMetadata[0].text;
+    expect(merged).toBe('First short paragraph that is long enough.\n\nSecond short paragraph that is also long enough.\n\nThird short paragraph, again long enough to keep.');
+  });
+});
