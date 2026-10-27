@@ -23,6 +23,7 @@ function chunkingOptionsFromEnv(): ChunkingOptions {
 const DATA_DIR = process.env.OBSIDIAN_MCP_DATA_DIR || path.join(os.homedir(), '.config', 'obsidian-mcp');
 const DB_PATH = path.join(DATA_DIR, `lancedb${MODEL_SLUG}`);
 const HASH_PATH = path.join(DATA_DIR, `file-hashes${MODEL_SLUG}.json`);
+const META_PATH = path.join(DATA_DIR, `index-meta${MODEL_SLUG}.json`);
 
 // LanceDB keeps 7 days of versions by default; every write adds one, so the
 // index grows to many times its live size. Keep 1h so another client's
@@ -111,11 +112,43 @@ export class VaultIndexer {
     return recovered;
   }
 
+  /** The only code that writes the hash file. */
+  private async writeHashes(hashes: Record<string, string>) {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(HASH_PATH, JSON.stringify(hashes));
+  }
+
+  private async readHashes(): Promise<Record<string, string>> {
+    try {
+      return JSON.parse(await fs.readFile(HASH_PATH, 'utf-8'));
+    } catch {
+      return {};
+    }
+  }
+
+  /** An index belongs to one vault. A missing meta file is adopted by the first vault that indexes. */
+  private async assertIndexVault(vaultPath: string) {
+    const requested = await fs.realpath(vaultPath);
+    let recorded: string | undefined;
+    try {
+      recorded = JSON.parse(await fs.readFile(META_PATH, 'utf-8')).vault;
+    } catch { /* missing or unreadable: adopt */ }
+    if (!recorded) {
+      await fs.mkdir(DATA_DIR, { recursive: true });
+      await fs.writeFile(META_PATH, JSON.stringify({ vault: requested }));
+      return;
+    }
+    if (recorded !== requested) {
+      throw new Error(`Index belongs to vault ${recorded}; refusing to index ${requested}. Point OBSIDIAN_MCP_DATA_DIR at a separate directory to index another vault.`);
+    }
+  }
+
   public async indexFile(vaultPath: string, relativePath: string) {
     const embedder = Embedder.getInstance();
     const filePath = path.join(vaultPath, relativePath);
 
     try {
+      await this.assertIndexVault(vaultPath);
       const content = await fs.readFile(filePath, 'utf-8');
       const { mtime } = await fs.stat(filePath);
       const { data, content: body } = matter(content);
@@ -159,6 +192,7 @@ export class VaultIndexer {
   }
 
   public async indexVault(vaultPath: string, force: boolean = false) {
+    await this.assertIndexVault(vaultPath);
     const embedder = Embedder.getInstance();
     const db = await this.getDb();
 
@@ -167,12 +201,7 @@ export class VaultIndexer {
     console.error(`Found ${files.length} notes in ${vaultPath}`);
 
     // Load previous file hashes for incremental indexing
-    let previousHashes: Record<string, string> = {};
-    if (!force) {
-      try {
-        previousHashes = JSON.parse(await fs.readFile(HASH_PATH, 'utf-8'));
-      } catch { /* no previous hashes — will do full index */ }
-    }
+    const previousHashes = force ? {} : await this.readHashes();
 
     const tableNames = await db.tableNames();
     const tableExists = tableNames.includes('notes');
@@ -276,7 +305,7 @@ export class VaultIndexer {
       // Indexes built before hybrid search have no full-text index yet.
       const table = await db.openTable('notes');
       if (!(await this.hasFtsIndex(table))) await this.ensureFtsIndex(table);
-      await fs.writeFile(HASH_PATH, JSON.stringify(currentHashes));
+      await this.writeHashes(currentHashes);
       return { success: true, chunks: 0, message: 'Index up to date, no changes detected.' };
     }
 
@@ -293,6 +322,9 @@ export class VaultIndexer {
     if (canIncremental) {
       this.table = await db.openTable('notes');
       const pathsToDelete = [...changedPaths, ...deletedPaths];
+      // Drop hashes of paths about to change first: a crash leaves them unhashed, so the next run redoes them.
+      const dropped = new Set(pathsToDelete);
+      await this.writeHashes(Object.fromEntries(Object.entries(previousHashes).filter(([p]) => !dropped.has(p))));
       if (pathsToDelete.length > 0) {
         const DELETE_BATCH = 100;
         for (let i = 0; i < pathsToDelete.length; i += DELETE_BATCH) {
@@ -302,6 +334,9 @@ export class VaultIndexer {
         }
       }
       tableInitialized = true;
+    } else {
+      // A crash mid-rebuild must not leave stale hashes that make the next run trust a partial table.
+      await this.writeHashes({});
     }
 
     // Embed new/changed chunks (or all chunks for full reindex)
@@ -392,7 +427,7 @@ export class VaultIndexer {
     }
 
     // Save updated hashes
-    await fs.writeFile(HASH_PATH, JSON.stringify(currentHashes));
+    await this.writeHashes(currentHashes);
 
     if (canIncremental) {
       console.error(`Incremental update: ${indexedChunks} chunks embedded, ${deletedPaths.length} files removed.`);
