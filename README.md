@@ -27,6 +27,10 @@ Notable parameters:
 - `obsidian_get_related`: outgoing links, backlinks and semantically similar notes
 - `obsidian_get_orphans`: notes nothing links to; `subfolder` limits the notes reported, `linked_from` counts only links from one prefix (e.g. `MOCs/`)
 - `obsidian_move_note`: rewrites wikilinks that point at the moved note unless `update_links` is false; refuses an existing destination
+- `limit` on `obsidian_search_notes`, `obsidian_rag_query` and `obsidian_get_related` is clamped to 1..100
+- `obsidian_search_notes` with `regex: true` has a 2 s time budget and errors `Regex search timed out after 2000 ms`
+- `obsidian_rag_query`: `max_distance` (CLI `--max-distance`) drops semantic hits with vector distance above n; keyword hits are kept; no default
+- Tool arguments are validated against each tool's schema; `obsidian_update_frontmatter` single-key `value` must be a string (JSON-stringify arrays and objects, or use `updates`)
 
 ## Install
 
@@ -66,6 +70,7 @@ Relative entries are ignored. The default vault is the first root that exists. A
 
 The server reads these optional files from the vault; nothing vault-specific is hard-coded.
 
+- Write tools only create or edit `.md`, `.base` and `.canvas` files and refuse any path with a segment starting with `.` (e.g. `.obsidian/`)
 - `.obsidian/daily-notes.json`: `folder` and `format` decide where the daily note lives
 - `AGENTS.md`: appended to the server instructions (truncated if long) and served in full as the `obsidian://vault-guide` resource
 - `.obsidian-mcp-schema.json`: frontmatter rules enforced on create and frontmatter update, and by `validate_frontmatter`:
