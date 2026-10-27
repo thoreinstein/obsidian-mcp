@@ -520,6 +520,16 @@ describe('write path policy', () => {
     await expect(runTool('obsidian_append_note', { file_path: 'notes/x.md', content: 'pwn' }, ctx)).rejects.toThrow(/not writable|Not a writable note type/);
     expect(await fs.readFile(target, 'utf-8')).toBe('x');
   });
+  it('frontmatter and section tools refuse .canvas', async () => {
+    await fs.writeFile(path.join(vp, 'b.canvas'), '{}');
+    const calls: [string, Record<string, unknown>][] = [
+      ['obsidian_update_frontmatter', { file_path: 'b.canvas', key: 'k', value: 'v' }],
+      ['obsidian_replace_section', { file_path: 'b.canvas', heading: 'S', content: 'c' }],
+      ['obsidian_insert_at_heading', { file_path: 'b.canvas', heading: 'S', content: 'c' }],
+    ];
+    for (const [tool, args] of calls) await expect(runTool(tool, args, ctx)).rejects.toThrow('Not a markdown note');
+    expect(await fs.readFile(path.join(vp, 'b.canvas'), 'utf-8')).toBe('{}');
+  });
   it('applies schema rules to ./ and ../ spellings', async () => {
     await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ rules: [{ prefix: 'Engineering/', required: ['type'] }] }));
     for (const p of ['./Engineering/x.md', 'sub/../Engineering/y.md'])

@@ -660,6 +660,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_update_frontmatter': {
       const vp = vaultArg();
       const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
+      if (!isMarkdown(rel)) throw new Error(`Not a markdown note: ${args.file_path}`);
       const fileContent = await fs.readFile(filePath, 'utf-8');
       // CLI passes `updates` as a JSON string; MCP passes an object.
       const rawUpdates = typeof args.updates === 'string' ? JSON.parse(args.updates) : args.updates;
@@ -675,6 +676,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_replace_section': {
       const vp = vaultArg();
       const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
+      if (!isMarkdown(rel)) throw new Error(`Not a markdown note: ${args.file_path}`);
       const heading = String(args.heading);
       const content = String(args.content);
       const fileContent = await fs.readFile(filePath, 'utf-8');
@@ -687,6 +689,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_insert_at_heading': {
       const vp = vaultArg();
       const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
+      if (!isMarkdown(rel)) throw new Error(`Not a markdown note: ${args.file_path}`);
       const heading = String(args.heading);
       const content = String(args.content);
       const position = (args.position || 'end') as 'beginning' | 'end';
