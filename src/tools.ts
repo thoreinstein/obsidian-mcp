@@ -336,6 +336,18 @@ export async function readNotes(vp: string, files: string[], concurrency = 32): 
   return out;
 }
 
+/** Notes (sorted) with a wikilink that resolves to the exact note `rel`, path-style or bare. */
+async function backlinksTo(vp: string, rel: string): Promise<string[]> {
+  const files = await glob('**/*.md', { cwd: vp });
+  const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
+  const contents = await readNotes(vp, files);
+  return files.filter((f, i) => {
+    const content = contents[i];
+    return f !== rel && content !== null
+      && extractWikilinks(content).some(l => resolveLink(stripHeadingFromLink(l), f) === rel);
+  }).sort();
+}
+
 /** Relative paths of notes containing a wikilink to `target` (basename, no extension). */
 async function findBacklinks(vp: string, target: string): Promise<string[]> {
   const linkRegex = new RegExp(`\\[\\[${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([\\]\\|#])`, 'i');
@@ -646,17 +658,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       let target: string;
       let backlinks: string[];
       if (args.file_path) {
-        // Exact note: keep a note when any of its links resolves to this path (path-style or bare).
-        const rel = path.relative(vp, await resolveVaultPath(vp, String(args.file_path))).split(path.sep).join('/');
+        const rel = vaultRel(vp, await resolveVaultPath(vp, String(args.file_path)));
         target = rel.replace(/\.md$/i, '');
-        const files = await glob('**/*.md', { cwd: vp });
-        const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
-        const contents = await readNotes(vp, files);
-        backlinks = files.filter((f, i) => {
-          const content = contents[i];
-          return f !== rel && content !== null
-            && extractWikilinks(content).some(l => resolveLink(stripHeadingFromLink(l), f) === rel);
-        });
+        backlinks = await backlinksTo(vp, rel);
       } else {
         target = String(args.file_name).replace(/\.md$/i, '');
         backlinks = await findBacklinks(vp, target);
@@ -668,18 +672,19 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_get_related': {
       const vp = vaultArg();
-      const filePath = String(args.file_path);
       const limit = clampLimit(args.limit, 5);
-      const content = await fs.readFile(await resolveVaultPath(vp, filePath), 'utf-8');
+      const abs = await resolveVaultPath(vp, String(args.file_path));
+      const filePath = vaultRel(vp, abs);
+      const content = await fs.readFile(abs, 'utf-8');
       const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
       const targets = [...new Set(extractWikilinks(content).map(stripHeadingFromLink).filter(Boolean))];
       const out = targets.map(t => `- [[${t}]] → ${resolveLink(t, filePath) ?? '(unresolved)'}`);
-      const backlinks = await findBacklinks(vp, path.basename(filePath, '.md'));
+      const backlinks = await backlinksTo(vp, filePath);
       const similar = await ctx.indexer.similarNotes(filePath, limit);
       const list = (lines: string[]) => (lines.length ? lines.join('\n') : '(none)');
       return [
         '## Links out', list(out), '',
-        '## Backlinks', list(backlinks.map(f => `- ${f}`)), '',
+        '## Backlinks', list([...backlinks.slice(0, 200).map(f => `- ${f}`), ...(backlinks.length > 200 ? [`...and ${backlinks.length - 200} more.`] : [])]), '',
         '## Similar', list(similar.map(r => `- ${r.path} — ${formatResultMeta(r)}`)),
       ].join('\n');
     }

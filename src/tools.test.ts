@@ -285,6 +285,21 @@ describe('obsidian_get_related', () => {
   });
 });
 
+describe('obsidian_get_related with duplicate names', () => {
+  it('lists only notes that resolve to the note as backlinks', async () => {
+    await fs.mkdir(path.join(vp, 'a'));
+    await fs.mkdir(path.join(vp, 'b'));
+    await fs.writeFile(path.join(vp, 'a', 'x.md'), 'ax');
+    await fs.writeFile(path.join(vp, 'b', 'x.md'), 'bx');
+    await fs.writeFile(path.join(vp, 'a', 'note.md'), 'see [[x]]');
+    await fs.writeFile(path.join(vp, 'b', 'note.md'), 'see [[x]]');
+    ctx.indexer = { similarNotes: vi.fn(async () => []) } as any;
+    const out = await runTool('obsidian_get_related', { file_path: './b/x.md' }, ctx);
+    expect(out).toContain('## Backlinks\n- b/note.md');
+    expect(out).not.toContain('a/note.md');
+  });
+});
+
 describe('obsidian_get_related path-style links', () => {
   it('resolves [[folder/note]] case-insensitively', async () => {
     await fs.writeFile(path.join(vp, 'a.md'), 'see [[Sub/B]] and [[nope/b]]');
