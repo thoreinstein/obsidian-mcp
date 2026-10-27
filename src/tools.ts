@@ -444,7 +444,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_set_vault': {
       const p = String(args.path);
       await ctx.setVaultPath(p);
-      return `Vault path set to: ${p}`;
+      return `Vault path set to: ${ctx.getVaultPath()}`;
     }
     case 'obsidian_list_notes': {
       const vp = vaultArg();

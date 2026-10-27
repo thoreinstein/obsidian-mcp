@@ -578,3 +578,11 @@ describe('rag_index path', () => {
     expect(indexFile).toHaveBeenCalledWith(vp, 'a.md');
   });
 });
+
+describe('set_vault reply', () => {
+  it('reports the resolved vault', async () => {
+    let current = vp;
+    const c = { ...ctx, getVaultPath: () => current, setVaultPath: vi.fn(async () => { current = '/configured/root'; }) };
+    expect(await runTool('obsidian_set_vault', { path: '/configured/root/../root/' }, c)).toBe('Vault path set to: /configured/root');
+  });
+});
