@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { glob } from 'glob';
 import matter from 'gray-matter';
-import md5 from 'md5';
+import { md5 } from './hash.js';
 import { Embedder, MODEL_SLUG } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
 import { withCommitRetry } from './retry.js';

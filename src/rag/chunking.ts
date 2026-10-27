@@ -1,4 +1,4 @@
-import md5 from 'md5';
+import { md5 } from './hash.js';
 import { scanHeadings } from '../utils.js';
 
 export interface ChunkingOptions {
