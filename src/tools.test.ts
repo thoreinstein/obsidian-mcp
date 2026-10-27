@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import matter from 'gray-matter';
 import * as noteWrite from './note-write.js';
+import { resolveDailyNotePath } from './utils.js';
 import { runTool, readNotes, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 vi.mock('./note-write.js', async (orig) => {
@@ -686,5 +687,42 @@ describe('obsidian_search_notes order', () => {
     const lines = out.split('\n').filter(l => /^n\d\d\.md:/.test(l));
     expect(lines).toEqual(expected);
     expect(await runTool('obsidian_search_notes', { query: 'needle' }, ctx)).toBe(out);
+  });
+});
+
+describe('daily note read errors', () => {
+  async function dirAtDailyPath() {
+    await fs.mkdir(path.join(vp, '.obsidian'));
+    await fs.writeFile(path.join(vp, '.obsidian', 'daily-notes.json'), JSON.stringify({ folder: 'Daily' }));
+    const p = path.join(vp, await resolveDailyNotePath(vp, new Date()));
+    await fs.mkdir(p, { recursive: true });
+    return p;
+  }
+
+  it('get_daily_note does not overwrite on a non-missing read error', async () => {
+    const p = await dirAtDailyPath();
+    await expect(runTool('obsidian_get_daily_note', {}, ctx)).rejects.toThrow();
+    expect((await fs.stat(p)).isDirectory()).toBe(true);
+    expect(await fs.readdir(p)).toEqual([]);
+  });
+
+  it('append_daily_log rethrows a non-missing read error', async () => {
+    const p = await dirAtDailyPath();
+    await expect(runTool('obsidian_append_daily_log', { heading: 'Log', content: 'x' }, ctx)).rejects.toThrow();
+    expect((await fs.stat(p)).isDirectory()).toBe(true);
+    expect(await fs.readdir(p)).toEqual([]);
+  });
+
+  it('append_daily_log does not replace an unreadable note', async () => {
+    const p = await dirAtDailyPath();
+    await fs.rmdir(p);
+    await fs.writeFile(p, 'precious');
+    await fs.chmod(p, 0o000);
+    try {
+      await expect(runTool('obsidian_append_daily_log', { heading: 'Log', content: 'x' }, ctx)).rejects.toThrow();
+    } finally {
+      await fs.chmod(p, 0o644);
+    }
+    expect(await fs.readFile(p, 'utf-8')).toBe('precious');
   });
 });

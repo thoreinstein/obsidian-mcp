@@ -183,3 +183,27 @@ describe('atomic writes', () => {
     expect(Object.keys(hashes).sort()).toEqual(notes);
   }, 120_000);
 });
+
+describe('failure visibility', () => {
+  it('a short embedding batch falls back to one-by-one', async () => {
+    const { Embedder } = await import('./embedder.js');
+    const embedder = Embedder.getInstance();
+    const orig = embedder.embedBatch.bind(embedder);
+    const spy = vi.spyOn(embedder, 'embedBatch').mockImplementation(async (texts: string[]) => (await orig(texts)).slice(0, -1));
+    try {
+      await fs.writeFile(path.join(vaultA, 'two.md'), '# One\nFirst chunk about SHORTBATCH alpha topics.\n\n# Two\nSecond chunk about SHORTBATCH beta topics.\n');
+      const res = await indexer.indexFile(vaultA, 'two.md');
+      expect(res).toMatchObject({ success: true, chunks: 2 });
+    } finally {
+      spy.mockRestore();
+    }
+  }, 120_000);
+
+  it('indexFile failure message has no absolute path', async () => {
+    const missing = path.join(os.tmpdir(), 'robust-no-such-vault-xyz');
+    const res = await indexer.indexFile(missing, 'a.md');
+    expect(res.success).toBe(false);
+    expect(res.message).toMatch(/^Failed to index /);
+    expect(res.message).not.toContain(missing);
+  }, 120_000);
+});

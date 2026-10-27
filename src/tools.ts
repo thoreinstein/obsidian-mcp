@@ -530,10 +530,16 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const title = path.basename(filePath, '.md');
       try {
         return await fs.readFile(filePath, 'utf-8');
-      } catch {
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         const content = `# ${title}\n\n`;
-        await fs.writeFile(filePath, content, 'utf-8');
+        try {
+          await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
+        } catch (we) {
+          if ((we as NodeJS.ErrnoException).code !== 'EEXIST') throw we;
+          return await fs.readFile(filePath, 'utf-8');
+        }
         return content;
       }
     }
@@ -744,7 +750,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       let mtimeMs: number | undefined;
       try {
         ({ content: fileContent, mtimeMs } = await readForEdit(filePath));
-      } catch {
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         fileContent = `# ${title}\n\n`;
       }

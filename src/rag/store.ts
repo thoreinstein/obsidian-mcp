@@ -9,6 +9,7 @@ import { Embedder, MODEL_SLUG } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
 import { withCommitRetry } from './retry.js';
 import { planBatches } from './batching.js';
+import { log } from '../log.js';
 import { buildWhereClause, dedupeByPath, FRONTMATTER_OPTIONS, rrfMerge, SearchFilters } from '../utils.js';
 
 function chunkingOptionsFromEnv(): ChunkingOptions {
@@ -96,10 +97,13 @@ export class VaultIndexer {
 
     try {
       const vectors = await embedder.embedBatch(texts);
-      return meta.slice(0, vectors.length).map((item, idx) => ({
-        ...item,
-        vector: vectors[idx]
-      }));
+      if (vectors.length === texts.length) {
+        return meta.map((item, idx) => ({
+          ...item,
+          vector: vectors[idx]
+        }));
+      }
+      log.warn(`Embedding batch returned ${vectors.length} vectors for ${texts.length} chunks; retrying one-by-one.`);
     } catch (batchErr) {
       console.error(`Failed to embed batch of ${texts.length} chunks; retrying one-by-one:`, batchErr);
     }
@@ -198,11 +202,11 @@ export class VaultIndexer {
           this.ftsReady = true;
       }
       await this.setHash(relativePath, md5(content));
-      console.error(`Indexed ${chunks.length} chunks for ${relativePath}.`);
+      log.debug(`Indexed ${chunks.length} chunks for ${relativePath}.`);
       return { success: true, chunks: chunks.length };
     } catch (err) {
       console.error(`Failed to index file ${filePath}:`, err);
-      return { success: false, message: String(err) };
+      return { success: false, message: `Failed to index ${relativePath}: ${(err instanceof Error ? err.message : String(err)).split(filePath).join(relativePath).split(vaultPath).join('<vault>')}` };
     }
   }
 
@@ -240,7 +244,7 @@ export class VaultIndexer {
 
     // Find all markdown files
     const files = await glob('**/*.md', { cwd: vaultPath, absolute: true });
-    console.error(`Found ${files.length} notes in ${vaultPath}`);
+    log.debug(`Found ${files.length} notes in ${vaultPath}`);
 
     // Load previous file hashes for incremental indexing
     const previousHashes = force ? {} : await this.readHashes();
@@ -287,7 +291,7 @@ export class VaultIndexer {
         return;
       }
       if (filesRead % progressInterval === 0 || filesRead === files.length) {
-        console.error(`Reading progress: ${filesRead}/${files.length} files`);
+        log.debug(`Reading progress: ${filesRead}/${files.length} files`);
       }
     };
 
@@ -338,14 +342,14 @@ export class VaultIndexer {
     const deletedPaths = Object.keys(previousHashes).filter(p => !(p in currentHashes));
 
     if (canIncremental) {
-      console.error(`Incremental: ${changedPaths.length} changed, ${deletedPaths.length} deleted, ${skippedFiles} unchanged`);
+      log.debug(`Incremental: ${changedPaths.length} changed, ${deletedPaths.length} deleted, ${skippedFiles} unchanged`);
     } else {
-      console.error(`Full index: ${allTexts.length} chunks from ${files.length} files`);
+      log.debug(`Full index: ${allTexts.length} chunks from ${files.length} files`);
     }
 
     // Early exit: nothing changed
     if (canIncremental && allTexts.length === 0 && deletedPaths.length === 0) {
-      console.error('Index is up to date, no changes detected.');
+      log.debug('Index is up to date, no changes detected.');
       // Indexes built before hybrid search have no full-text index yet.
       const table = await db.openTable('notes');
       if (!(await this.hasFtsIndex(table))) await this.ensureFtsIndex(table);
@@ -412,7 +416,7 @@ export class VaultIndexer {
           return;
         }
         if (batchesDone % 5 === 0 || batchesDone === batches.length) {
-          console.error(`Embedding progress: ${chunksEmbedded}/${total} chunks`);
+          log.debug(`Embedding progress: ${chunksEmbedded}/${total} chunks`);
         }
       };
 
@@ -483,9 +487,9 @@ export class VaultIndexer {
     await this.writeHashes(currentHashes);
 
     if (canIncremental) {
-      console.error(`Incremental update: ${indexedChunks} chunks embedded, ${deletedPaths.length} files removed.`);
+      log.info(`Incremental update: ${indexedChunks} chunks embedded, ${deletedPaths.length} files removed.`);
     } else {
-      console.error(`Indexed ${indexedChunks} chunks.`);
+      log.info(`Indexed ${indexedChunks} chunks.`);
     }
     return { success: true, chunks: indexedChunks };
   }

@@ -66,6 +66,7 @@ async function loadConfig(): Promise<VaultConfig | null> {
 let vault = createVaultResolver([], CONFIG_PATH);
 
 async function readStdin(): Promise<string> {
+    if (process.stdin.isTTY) return '';
     return new Promise((resolve, reject) => {
         let data = '';
         process.stdin.setEncoding('utf-8');
@@ -78,13 +79,6 @@ async function readStdin(): Promise<string> {
         process.stdin.on('error', (err) => {
             reject(err);
         });
-        // Handle cases where stdin might be empty or already closed
-        setTimeout(() => {
-            if (data === '') {
-                // If no data after 1s, resolve with empty to avoid hang
-                resolve('');
-            }
-        }, 1000);
     });
 }
 
