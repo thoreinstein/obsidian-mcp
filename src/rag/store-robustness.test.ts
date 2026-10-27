@@ -67,7 +67,7 @@ describe('index ownership', () => {
   it('adopts an index with no meta file', async () => {
     await fs.rm(metaFile, { force: true });
     const res = await indexer.indexVault(vaultA);
-    expect(res.message).toMatch(/up to date/);
+    expect(res.success).toBe(true);
     const meta = JSON.parse(await fs.readFile(metaFile, 'utf-8'));
     expect(meta.vault).toBe(await fs.realpath(vaultA));
   }, 120_000);
@@ -79,6 +79,57 @@ describe('index ownership', () => {
     expect(res.message).toMatch(/Index belongs to vault/);
     const hits = await indexer.search('alpha rollout search ranking');
     expect(hits[0].path).toBe('a.md');
+  }, 120_000);
+});
+
+describe('embedder identity', () => {
+  async function writeMeta(meta: Record<string, unknown>) {
+    await fs.writeFile(metaFile, JSON.stringify(meta));
+  }
+
+  async function rebuildsFrom(meta: Record<string, unknown>) {
+    const { EMBEDDER_ID } = await import('./embedder.js');
+    const { log } = await import('../log.js');
+    await writeMeta(meta);
+    const warn = vi.spyOn(log, 'warn');
+    try {
+      const res = await indexer.indexVault(vaultA);
+      expect(res.success).toBe(true);
+      expect(res.message ?? '').not.toMatch(/up to date/);
+      const table = await (indexer as any).getTable();
+      expect(res.chunks).toBe(await table.countRows());
+      const rebuildWarnings = warn.mock.calls.filter(args => /Index was built by/.test(String(args[0])));
+      expect(rebuildWarnings).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+    const after = JSON.parse(await fs.readFile(metaFile, 'utf-8'));
+    expect(after).toEqual({ vault: await fs.realpath(vaultA), embedder: EMBEDDER_ID });
+  }
+
+  it('an index built by another embedder is rebuilt', async () => {
+    await rebuildsFrom({ vault: await fs.realpath(vaultA), embedder: 'transformers@2/legacy' });
+  }, 120_000);
+
+  it('a meta file with no embedder field counts as another embedder', async () => {
+    await rebuildsFrom({ vault: await fs.realpath(vaultA) });
+  }, 120_000);
+
+  it('indexFile refuses to write into a mismatched index', async () => {
+    const vault = await fs.realpath(vaultA);
+    await writeMeta({ vault, embedder: 'transformers@2/legacy' });
+    const table = await (indexer as any).getTable();
+    const before = await table.countRows();
+    await fs.writeFile(path.join(vaultA, 'mismatch.md'), '# Mismatch\nThis note must not reach an index built by another embedder at all.\n');
+    try {
+      const res = await indexer.indexFile(vaultA, 'mismatch.md');
+      expect(res).toEqual({ success: false, message: 'Index was built by another embedder; run obsidian_rag_index once to rebuild.' });
+      await table.checkoutLatest();
+      expect(await table.countRows()).toBe(before);
+    } finally {
+      await fs.rm(path.join(vaultA, 'mismatch.md'), { force: true });
+      expect((await indexer.indexVault(vaultA)).success).toBe(true);
+    }
   }, 120_000);
 });
 

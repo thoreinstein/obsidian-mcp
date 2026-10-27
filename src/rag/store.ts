@@ -5,7 +5,7 @@ import * as os from 'os';
 import { glob } from 'glob';
 import matter from 'gray-matter';
 import { md5 } from './hash.js';
-import { Embedder, MODEL_SLUG } from './embedder.js';
+import { Embedder, EMBEDDER_ID, MODEL_SLUG } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
 import { withCommitRetry } from './retry.js';
 import { planBatches } from './batching.js';
@@ -38,6 +38,14 @@ export const OPTIMIZE_EVERY_WRITES = 20;
 
 function optimizeOptions() {
   return { cleanupOlderThan: new Date(Date.now() - VERSION_RETENTION_MS) };
+}
+
+/** search warns about an index built by another embedder once per process. */
+let warnedEmbedderMismatch = false;
+
+interface IndexMeta {
+  vault?: string;
+  embedder?: string;
 }
 
 interface NoteChunk extends ChunkMetadata {
@@ -139,23 +147,34 @@ export class VaultIndexer {
     }
   }
 
-  /** An index belongs to one vault. A missing meta file is adopted by the first vault that indexes. */
-  private async assertIndexVault(vaultPath: string) {
-    const requested = await fs.realpath(vaultPath);
-    let recorded: string | undefined;
+  private async readMeta(): Promise<IndexMeta> {
     try {
-      recorded = JSON.parse(await fs.readFile(META_PATH, 'utf-8')).vault;
-    } catch { /* missing or unreadable: adopt */ }
-    if (!recorded) {
-      await fs.mkdir(DATA_DIR, { recursive: true });
-      const tmp = `${META_PATH}.tmp-${process.pid}`;
-      await fs.writeFile(tmp, JSON.stringify({ vault: requested }));
-      await fs.rename(tmp, META_PATH);
-      return;
+      return JSON.parse(await fs.readFile(META_PATH, 'utf-8'));
+    } catch {
+      return {}; // missing or unreadable: adopt
     }
-    if (recorded !== requested) {
-      throw new Error(`Index belongs to vault ${recorded}; refusing to index ${requested}. Point OBSIDIAN_MCP_DATA_DIR at a separate directory to index another vault.`);
+  }
+
+  private async writeMeta(meta: IndexMeta) {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const tmp = `${META_PATH}.tmp-${process.pid}`;
+    await fs.writeFile(tmp, JSON.stringify(meta));
+    await fs.rename(tmp, META_PATH);
+  }
+
+  /** An index belongs to one vault. A missing meta file is adopted by the first vault that indexes. */
+  private async assertIndexVault(vaultPath: string): Promise<IndexMeta> {
+    const requested = await fs.realpath(vaultPath);
+    const meta = await this.readMeta();
+    if (!meta.vault) {
+      const adopted = { ...meta, vault: requested };
+      await this.writeMeta(adopted);
+      return adopted;
     }
+    if (meta.vault !== requested) {
+      throw new Error(`Index belongs to vault ${meta.vault}; refusing to index ${requested}. Point OBSIDIAN_MCP_DATA_DIR at a separate directory to index another vault.`);
+    }
+    return meta;
   }
 
   public async indexFile(vaultPath: string, relativePath: string) {
@@ -163,7 +182,12 @@ export class VaultIndexer {
     const filePath = path.join(vaultPath, relativePath);
 
     try {
-      await this.assertIndexVault(vaultPath);
+      const indexMeta = await this.assertIndexVault(vaultPath);
+      const db = await this.getDb();
+      const tableExists = (await db.tableNames()).includes('notes');
+      if (tableExists && indexMeta.embedder !== EMBEDDER_ID) {
+          return { success: false, message: 'Index was built by another embedder; run obsidian_rag_index once to rebuild.' };
+      }
       const content = await fs.readFile(filePath, 'utf-8');
       const { mtime } = await fs.stat(filePath);
       const { data, content: body } = matter(content, FRONTMATTER_OPTIONS);
@@ -186,10 +210,10 @@ export class VaultIndexer {
       }
       const chunkRows = chunks as unknown as Record<string, unknown>[];
 
-      const db = await this.getDb();
       const tableNames = await db.tableNames();
       if (!tableNames.includes('notes')) {
           this.table = await db.createTable('notes', chunkRows);
+          await this.writeMeta({ vault: indexMeta.vault, embedder: EMBEDDER_ID });
       } else {
           const table = this.table = await db.openTable('notes');
           // Delete old chunks for this file
@@ -238,7 +262,7 @@ export class VaultIndexer {
   }
 
   public async indexVault(vaultPath: string, force: boolean = false) {
-    await this.assertIndexVault(vaultPath);
+    const indexMeta = await this.assertIndexVault(vaultPath);
     const embedder = Embedder.getInstance();
     const db = await this.getDb();
 
@@ -251,6 +275,10 @@ export class VaultIndexer {
 
     const tableNames = await db.tableNames();
     const tableExists = tableNames.includes('notes');
+    if (tableExists && indexMeta.embedder !== EMBEDDER_ID) {
+      log.warn(`Index was built by ${indexMeta.embedder ?? 'an older embedder'}; rebuilding with ${EMBEDDER_ID}.`);
+      force = true;
+    }
     if (tableExists && !force) {
       // Tables built before chunks carried note metadata can't take new rows; rebuild.
       const schema = await (await db.openTable('notes')).schema();
@@ -485,6 +513,8 @@ export class VaultIndexer {
 
     // Save updated hashes
     await this.writeHashes(currentHashes);
+    // A full rebuild that wrote rows replaced the table, so it now holds only this embedder's vectors.
+    if (!canIncremental && tableInitialized) await this.writeMeta({ vault: indexMeta.vault, embedder: EMBEDDER_ID });
 
     if (canIncremental) {
       log.info(`Incremental update: ${indexedChunks} chunks embedded, ${deletedPaths.length} files removed.`);
@@ -512,6 +542,10 @@ export class VaultIndexer {
     const table = await this.getTable();
     if (!table) {
         return [];
+    }
+    if (!warnedEmbedderMismatch && (await this.readMeta()).embedder !== EMBEDDER_ID) {
+      warnedEmbedderMismatch = true;
+      log.warn(`Index was built by another embedder; results may be degraded until obsidian_rag_index rebuilds it with ${EMBEDDER_ID}.`);
     }
 
     const embedder = Embedder.getInstance();

@@ -1,7 +1,21 @@
-import { pipeline, Pipeline } from '@xenova/transformers';
+import { env, pipeline, FeatureExtractionPipeline } from '@huggingface/transformers';
+import * as os from 'os';
+import * as path from 'path';
 
 export const DEFAULT_MODEL = 'Xenova/all-MiniLM-L6-v2';
+const DEFAULT_REVISION = '751bff37182d3f1213fa05d7196b954e230abad9';
 export const MODEL_NAME = process.env.OBSIDIAN_RAG_MODEL || DEFAULT_MODEL;
+const MODEL_REVISION = process.env.OBSIDIAN_RAG_MODEL_REVISION || (MODEL_NAME === DEFAULT_MODEL ? DEFAULT_REVISION : 'main');
+
+/** Recorded in the index meta; an index built by any other embedder is rebuilt, never mixed. */
+export const EMBEDDER_ID = `transformers@4/${MODEL_NAME}@${MODEL_REVISION}/q8`;
+
+/** Shared model cache, outside the install directory and the per-index data dir. */
+export function modelCacheDir(): string {
+  if (process.env.OBSIDIAN_MCP_MODEL_DIR) return process.env.OBSIDIAN_MCP_MODEL_DIR;
+  const cacheHome = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache');
+  return path.join(cacheHome, 'obsidian-mcp', 'models');
+}
 
 const PREFIXES: Record<string, { query: string; document: string }> = {
   'Xenova/bge-small-en-v1.5': { query: 'Represent this sentence for searching relevant passages: ', document: '' },
@@ -19,7 +33,7 @@ function withPrefix(text: string, kind: EmbedKind): string {
 
 export class Embedder {
   private static instance: Embedder;
-  private pipe: Pipeline | null = null;
+  private pipe: FeatureExtractionPipeline | null = null;
   private modelName = MODEL_NAME;
 
   private constructor() {}
@@ -31,10 +45,15 @@ export class Embedder {
     return Embedder.instance;
   }
 
-  private async getPipeline(): Promise<Pipeline> {
+  private async getPipeline(): Promise<FeatureExtractionPipeline> {
     if (!this.pipe) {
       console.error('Loading embedding model...');
-      this.pipe = await pipeline('feature-extraction', this.modelName) as unknown as Pipeline;
+      env.cacheDir = modelCacheDir();
+      env.allowRemoteModels = process.env.OBSIDIAN_MCP_OFFLINE !== '1';
+      // Offline, transformers 4.3.1 probes for the tokenizer without the revision and misses the pinned
+      // cache entry, so load the cached revision directory as a local model instead.
+      const source = env.allowRemoteModels ? this.modelName : path.join(env.cacheDir, this.modelName, MODEL_REVISION);
+      this.pipe = await pipeline('feature-extraction', source, { dtype: 'q8', revision: MODEL_REVISION });
       console.error('Model loaded.');
     }
     return this.pipe!;

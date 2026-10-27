@@ -45,7 +45,7 @@ cd obsidian-mcp && npm install && npm run build
 
 Requires Node >= 22.
 
-The build bundles everything except the native packages `@lancedb/lancedb`, `onnxruntime-node` and `sharp`, which stay external and are installed under `dependencies` by `npm install`. The bundled packages live in `devDependencies` because they are compiled into `dist/index.js`.
+The build bundles everything except the native packages `@lancedb/lancedb` and `onnxruntime-node`, which stay external and are the only `dependencies` installed by `npm install`. `onnxruntime-node` is pinned to the exact version `@huggingface/transformers` requires. The bundled packages, `@huggingface/transformers` among them, live in `devDependencies` because they are compiled into `dist/index.js`. Image pipelines are unused, so the build replaces `sharp` with an empty stub and never loads it.
 
 ## Configure
 
@@ -102,11 +102,16 @@ Canonical, shared by all clients:
 - Config: `~/.config/obsidian-mcp/config.json`
 - LanceDB index: `~/.config/obsidian-mcp/lancedb/`
 - File-hash cache: `~/.config/obsidian-mcp/file-hashes.json`
-- Index owner: `~/.config/obsidian-mcp/index-meta.json` (the vault the index belongs to)
+- Index owner: `~/.config/obsidian-mcp/index-meta.json` (the vault the index belongs to and the embedder that built it)
+- Embedding model cache: `~/.cache/obsidian-mcp/models/` (`$XDG_CACHE_HOME/obsidian-mcp/models/` when `XDG_CACHE_HOME` is set; override with `OBSIDIAN_MCP_MODEL_DIR`)
 
 Override the directory with `OBSIDIAN_MCP_DATA_DIR`, the config file with `OBSIDIAN_MCP_CONFIG`.
 
-The embedding model defaults to `Xenova/all-MiniLM-L6-v2`; set `OBSIDIAN_RAG_MODEL` to use another. Non-default models get their own index (`lancedb-<model>/`, `file-hashes-<model>.json`, with `/` in the model name replaced by `__`), so switching models never mixes embeddings. Reindex after switching.
+The embedding model defaults to `Xenova/all-MiniLM-L6-v2`, pinned to revision `751bff37182d3f1213fa05d7196b954e230abad9` and loaded as `q8`; set `OBSIDIAN_RAG_MODEL` to use another. Other models use revision `main` unless `OBSIDIAN_RAG_MODEL_REVISION` is set. Non-default models get their own index (`lancedb-<model>/`, `file-hashes-<model>.json`, with `/` in the model name replaced by `__`), so switching models never mixes embeddings. Reindex after switching.
+
+The model downloads once (about 23 MB) into the model cache on first use. Set `OBSIDIAN_MCP_OFFLINE=1` to never touch the network; the model must then already be in the cache.
+
+The index meta records the embedder that built it (`transformers@4/<model>@<revision>/q8`). An index built by another embedder, including every index built before the move to `@huggingface/transformers` 4, is rebuilt in full by the next `obsidian_rag_index` (the server's startup index does this). Until then, queries log a warning that results may be degraded, and single-note reindexing is refused.
 
 Embedding batches hold at most `OBSIDIAN_RAG_EMBED_BATCH_SIZE` chunks (default 48) and `OBSIDIAN_RAG_EMBED_BATCH_CHARS` characters (default 6000); the character cap bounds peak memory on long chunks.
 
