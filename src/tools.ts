@@ -302,22 +302,28 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
 // CLI args arrive as strings; MCP args are typed JSON. Accept both for booleans.
 const isTrue = (v: unknown): boolean => v === true || v === 'true';
 
+/** UTF-8 content of each file under `vp`, in input order; null where the read failed. Reads `concurrency` files at a time. */
+export async function readNotes(vp: string, files: string[], concurrency = 32): Promise<Array<string | null>> {
+  const out: Array<string | null> = [];
+  for (let i = 0; i < files.length; i += concurrency) {
+    const slice = files.slice(i, i + concurrency);
+    out.push(...await Promise.all(slice.map(f => fs.readFile(path.join(vp, f), 'utf-8').catch(() => null))));
+  }
+  return out;
+}
+
 /** Relative paths of notes containing a wikilink to `target` (basename, no extension). */
 async function findBacklinks(vp: string, target: string): Promise<string[]> {
   const linkRegex = new RegExp(`\\[\\[${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([\\]\\|#])`, 'i');
   const files = await glob('**/*.md', { cwd: vp });
   const backlinks: string[] = [];
-  const batchSize = 50;
-  for (let i = 0; i < files.length; i += batchSize) {
-    const batch = files.slice(i, i + batchSize);
-    await Promise.all(batch.map(async (f) => {
-      try {
-        const content = await fs.readFile(path.join(vp, f), 'utf-8');
-        const prose = splitCode(content).filter(seg => !seg.code).map(seg => seg.text).join('\n');
-        if (linkRegex.test(prose)) backlinks.push(f);
-      } catch { }
-    }));
-  }
+  const contents = await readNotes(vp, files);
+  files.forEach((f, i) => {
+    const content = contents[i];
+    if (content === null) return;
+    const prose = splitCode(content).filter(seg => !seg.code).map(seg => seg.text).join('\n');
+    if (linkRegex.test(prose)) backlinks.push(f);
+  });
   return backlinks;
 }
 
@@ -454,8 +460,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const want = { type: args.type, status: args.status };
       if (want.type || want.status) {
         const kept: string[] = [];
-        for (const f of files) {
-          const data = matter(await fs.readFile(path.join(vp, f), 'utf-8'), FRONTMATTER_OPTIONS).data;
+        const contents = await readNotes(vp, files);
+        for (const [i, f] of files.entries()) {
+          const data = matter(contents[i] ?? '', FRONTMATTER_OPTIONS).data;
           if ((!want.type || data.type === want.type) && (!want.status || data.status === want.status)) kept.push(f);
         }
         files = kept;
@@ -544,13 +551,14 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const out: string[] = [];
       let shown = 0, extra = 0;
       const extraFiles = new Set<string>();
-      for (const f of files) {
+      const contents = await readNotes(vp, files);
+      for (const [i, f] of files.entries()) {
         if (re.test(path.basename(f))) {
           if (shown < limit) { out.push(`${f} (filename match)`); shown++; }
           else { extra++; extraFiles.add(f); }
         }
-        let content: string;
-        try { content = await fs.readFile(path.join(vp, f), 'utf-8'); } catch { continue; }
+        const content = contents[i];
+        if (content === null) continue;
         for (const m of findMatches(content, re, {})) {
           if (shown < limit) { out.push(`${f}:${m.line}: ${m.text}`); shown++; }
           else { extra++; extraFiles.add(f); }
@@ -643,9 +651,11 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const unique = allFiles.filter(f => path.basename(f, '.md').toLowerCase() === from.name.toLowerCase()).length === 1;
       const readonly = (await loadVaultSchema(vp))?.readonly ?? [];
       const updated: string[] = [], skipped: string[] = [];
-      for (const f of await glob('**/*.md', { cwd: vp })) {
+      const scanFiles = await glob('**/*.md', { cwd: vp });
+      const contents = await readNotes(vp, scanFiles);
+      for (const [i, f] of scanFiles.entries()) {
         const abs = path.join(vp, f);
-        const content = await fs.readFile(abs, 'utf-8').catch(() => null);
+        const content = contents[i];
         if (content === null) continue;
         const next = rewriteWikilinks(content, from, to, unique);
         if (next === content) continue;
@@ -743,8 +753,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const files = await glob(pattern, { cwd: vp });
       const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
       const targetMap = new Map<string, string[]>();
-      for (const f of files) {
-        const content = await fs.readFile(path.join(vp, f), 'utf-8').catch(() => '');
+      const contents = await readNotes(vp, files);
+      for (const [i, f] of files.entries()) {
+        const content = contents[i] ?? '';
         for (const link of extractWikilinks(content)) {
           const target = stripHeadingFromLink(link);
           if (!target) continue;
@@ -768,9 +779,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const resolveLink = buildLinkResolver(allFiles);
       const linkedFrom = args.linked_from ? String(args.linked_from) : '';
       const linked = new Set<string>();
-      for (const f of allFiles) {
-        if (!f.startsWith(linkedFrom)) continue;
-        const content = await fs.readFile(path.join(vp, f), 'utf-8').catch(() => '');
+      const scanned = allFiles.filter(f => f.startsWith(linkedFrom));
+      const contents = await readNotes(vp, scanned);
+      for (const [i, f] of scanned.entries()) {
+        const content = contents[i] ?? '';
         for (const link of extractWikilinks(content)) {
           const target = resolveLink(stripHeadingFromLink(link));
           if (target && target !== f) linked.add(target);

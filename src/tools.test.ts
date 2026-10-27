@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import matter from 'gray-matter';
-import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
+import { runTool, readNotes, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 let vp: string;
 let ctx: ToolContext;
@@ -604,5 +604,34 @@ describe('set_vault reply', () => {
     let current = vp;
     const c = { ...ctx, getVaultPath: () => current, setVaultPath: vi.fn(async () => { current = '/configured/root'; }) };
     expect(await runTool('obsidian_set_vault', { path: '/configured/root/../root/' }, c)).toBe('Vault path set to: /configured/root');
+  });
+});
+
+describe('readNotes', () => {
+  it('readNotes keeps order and returns null for unreadable files', async () => {
+    await fs.writeFile(path.join(vp, 'x.md'), 'xx');
+    await fs.writeFile(path.join(vp, 'y.md'), 'yy');
+    await fs.writeFile(path.join(vp, 'z.md'), 'zz');
+    const files = ['x.md', 'y.md', 'z.md'];
+    await fs.rm(path.join(vp, 'y.md'));
+    expect(await readNotes(vp, files)).toEqual(['xx', null, 'zz']);
+    expect(await readNotes(vp, files, 1)).toEqual(['xx', null, 'zz']);
+  });
+});
+
+describe('obsidian_search_notes order', () => {
+  it('search_notes output order is stable', async () => {
+    const expected: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const name = `n${String(i).padStart(2, '0')}.md`;
+      // Large files first so small ones finish reading earlier.
+      const pad = 'x'.repeat(i % 2 === 0 ? 200_000 : 1);
+      await fs.writeFile(path.join(vp, name), `needle ${i}\n${pad}`);
+      expected.push(`${name}:1: needle ${i}`);
+    }
+    const out = await runTool('obsidian_search_notes', { query: 'needle' }, ctx);
+    const lines = out.split('\n').filter(l => l.startsWith('n'));
+    expect(lines).toEqual(expected);
+    expect(await runTool('obsidian_search_notes', { query: 'needle' }, ctx)).toBe(out);
   });
 });
