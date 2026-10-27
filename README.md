@@ -43,7 +43,9 @@ git clone https://github.com/thoreinstein/obsidian-mcp
 cd obsidian-mcp && npm install && npm run build
 ```
 
-Native deps (`@lancedb/lancedb`, `onnxruntime-node`, `sharp`) must be built locally — run `npm install` in the repo.
+Requires Node >= 22.
+
+The build bundles everything except the native packages `@lancedb/lancedb`, `onnxruntime-node` and `sharp`, which stay external and are installed under `dependencies` by `npm install`. The bundled packages live in `devDependencies` because they are compiled into `dist/index.js`.
 
 ## Configure
 

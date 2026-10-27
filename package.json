@@ -7,11 +7,27 @@
     "obsidian-mcp": "dist/index.js"
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --format=cjs --external:@lancedb/lancedb --external:onnxruntime-node --external:sharp --banner:js=\"var import_meta = { url: 'file://' + __filename };\" --define:import.meta=import_meta",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/index.js --format=cjs --external:@lancedb/lancedb --external:onnxruntime-node --external:sharp --banner:js=\"var import_meta = { url: 'file://' + __filename };\" --define:import.meta=import_meta",
     "type-check": "tsc --noEmit",
     "start": "node dist/index.js",
     "test": "vitest run",
     "prepare": "npm run build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thoreinstein/obsidian-mcp.git"
+  },
+  "homepage": "https://github.com/thoreinstein/obsidian-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/thoreinstein/obsidian-mcp/issues"
   },
   "keywords": [
     "obsidian",
