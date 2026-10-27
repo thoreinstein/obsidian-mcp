@@ -320,8 +320,11 @@ async function findBacklinks(vp: string, target: string): Promise<string[]> {
   return backlinks;
 }
 
+const isMarkdown = (rel: string) => rel.toLowerCase().endsWith('.md');
+
 /** Throw before writing if the vault's schema file rejects this note's frontmatter. No schema means no validation. */
 async function assertValidFrontmatter(vp: string, relPath: string, content: string): Promise<void> {
+  if (!isMarkdown(relPath)) return;
   const schema = await loadVaultSchema(vp);
   if (!schema) return;
   const errors = validateFrontmatter(relPath, content, schema);
@@ -362,11 +365,21 @@ async function isReadonlyPath(vp: string, abs: string, readonly: string[]): Prom
   return readonly.some(p => rel.startsWith(p.toLowerCase()));
 }
 
-/** resolveVaultPath, then refuse paths under the schema's `readonly` prefixes. */
-async function resolveWritablePath(vp: string, relPath: string): Promise<string> {
+export const WRITABLE_EXTENSIONS = ['.md', '.base', '.canvas'];
+
+/**
+ * resolveVaultPath, then refuse the schema's `readonly` prefixes, hidden path segments (`.obsidian/`, `.git/`) and
+ * non-note extensions. `rel` is the normalized vault-relative path: use it, not the raw input, for schema rules and reindexing.
+ */
+async function resolveWritablePath(vp: string, relPath: string): Promise<{ abs: string; rel: string }> {
   const abs = await resolveVaultPath(vp, relPath);
+  const rel = vaultRel(vp, abs);
   if (await isReadonlyPath(vp, abs, (await loadVaultSchema(vp))?.readonly ?? [])) throw new Error(`Path is read-only: ${relPath}`);
-  return abs;
+  if (rel.split('/').some(seg => seg.startsWith('.'))) throw new Error(`Hidden paths are not writable: ${relPath}`);
+  if (!WRITABLE_EXTENSIONS.includes(path.extname(rel).toLowerCase())) {
+    throw new Error(`Not a writable note type: ${relPath} (allowed: ${WRITABLE_EXTENSIONS.join(', ')})`);
+  }
+  return { abs, rel };
 }
 
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
@@ -420,9 +433,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_create_note': {
       const vp = vaultArg();
-      const filePath = await resolveWritablePath(vp, String(args.file_path));
+      const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       const content = String(args.content || '');
-      await assertValidFrontmatter(vp, String(args.file_path), content);
+      await assertValidFrontmatter(vp, rel, content);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       try {
         await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
@@ -430,12 +443,12 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`Note already exists: ${args.file_path}`);
         throw e;
       }
-      ctx.reindex(vp, String(args.file_path));
+      if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Created note: ${args.file_path}`;
     }
     case 'obsidian_append_note': {
       const vp = vaultArg();
-      const filePath = await resolveWritablePath(vp, String(args.file_path));
+      const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       const content = String(args.content || '');
       let fileContent: string;
       try {
@@ -444,8 +457,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Note not found: ${args.file_path}`);
         throw e;
       }
-      await writeEdit(vp, String(args.file_path), filePath, fileContent, fileContent + '\n' + content);
-      ctx.reindex(vp, String(args.file_path));
+      await writeEdit(vp, rel, filePath, fileContent, fileContent + '\n' + content);
+      if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Appended to note: ${args.file_path}`;
     }
     case 'obsidian_get_daily_note': {
@@ -548,15 +561,15 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_move_note': {
       const vp = vaultArg();
-      const source = await resolveWritablePath(vp, String(args.source_path));
-      const dest = await resolveWritablePath(vp, String(args.dest_path));
+      const { abs: source, rel: sourceRel } = await resolveWritablePath(vp, String(args.source_path));
+      const { abs: dest, rel: destRel } = await resolveWritablePath(vp, String(args.dest_path));
       // fs.rename replaces an existing file. Same inode means a case-only rename on a case-insensitive filesystem.
       const destStat = await fs.stat(dest).catch(() => null);
       if (destStat && destStat.ino !== (await fs.stat(source)).ino) throw new Error(`Destination already exists: ${args.dest_path}`);
       const allFiles = await glob('**/*.md', { cwd: vp });
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(source, dest);
-      ctx.reindex(vp, String(args.dest_path), String(args.source_path));
+      if (isMarkdown(destRel)) ctx.reindex(vp, destRel, isMarkdown(sourceRel) ? sourceRel : undefined);
       const moved = `Moved ${args.source_path} to ${args.dest_path}`;
       if (args.update_links === false || args.update_links === 'false') return moved;
 
@@ -586,7 +599,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_update_frontmatter': {
       const vp = vaultArg();
-      const filePath = await resolveWritablePath(vp, String(args.file_path));
+      const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       const fileContent = await fs.readFile(filePath, 'utf-8');
       // CLI passes `updates` as a JSON string; MCP passes an object.
       const rawUpdates = typeof args.updates === 'string' ? JSON.parse(args.updates) : args.updates;
@@ -594,33 +607,33 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         ? { updates: rawUpdates as Record<string, unknown> }
         : { key: String(args.key), value: String(args.value) };
       const updated = applyFrontmatterUpdate(fileContent, updateArg);
-      await assertValidFrontmatter(vp, String(args.file_path), updated);
+      await assertValidFrontmatter(vp, rel, updated);
       await fs.writeFile(filePath, updated, 'utf-8');
-      ctx.reindex(vp, String(args.file_path));
+      if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Updated frontmatter in ${args.file_path}`;
     }
     case 'obsidian_replace_section': {
       const vp = vaultArg();
-      const filePath = await resolveWritablePath(vp, String(args.file_path));
+      const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       const heading = String(args.heading);
       const content = String(args.content);
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const range = findSectionRange(fileContent, heading);
       if (!range) throw new McpError(ErrorCode.InvalidParams, `Heading "${heading}" not found in ${args.file_path}`);
-      await writeEdit(vp, String(args.file_path), filePath, fileContent, replaceSection(fileContent, range, content));
-      ctx.reindex(vp, String(args.file_path));
+      await writeEdit(vp, rel, filePath, fileContent, replaceSection(fileContent, range, content));
+      if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Replaced section "${heading}" in ${args.file_path}`;
     }
     case 'obsidian_insert_at_heading': {
       const vp = vaultArg();
-      const filePath = await resolveWritablePath(vp, String(args.file_path));
+      const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       const heading = String(args.heading);
       const content = String(args.content);
       const position = (args.position || 'end') as 'beginning' | 'end';
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const range = findSectionRange(fileContent, heading);
-      await writeEdit(vp, String(args.file_path), filePath, fileContent, insertAtHeading(fileContent, heading, content, position, range));
-      ctx.reindex(vp, String(args.file_path));
+      await writeEdit(vp, rel, filePath, fileContent, insertAtHeading(fileContent, heading, content, position, range));
+      if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Inserted content under "${heading}" in ${args.file_path}`;
     }
     case 'obsidian_append_daily_log': {
@@ -650,11 +663,11 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_replace_in_note': {
       const vp = vaultArg();
-      const filePath = await resolveWritablePath(vp, String(args.file_path));
+      const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const updated = replaceInNote(fileContent, String(args.old_text), String(args.new_text ?? ''));
-      await writeEdit(vp, String(args.file_path), filePath, fileContent, updated);
-      ctx.reindex(vp, String(args.file_path));
+      await writeEdit(vp, rel, filePath, fileContent, updated);
+      if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Replaced text in ${args.file_path}`;
     }
     case 'obsidian_get_broken_links': {

@@ -470,3 +470,36 @@ describe('frontmatter checks on edit tools', () => {
     await expect(fs.access(path.join(vp, 'typo.md'))).rejects.toThrow();
   });
 });
+
+describe('write path policy', () => {
+  for (const p of ['.obsidian/plugins/evil/main.js', '.obsidian/community-plugins.json', 'notes/.hidden/x.md', '.git/config', 'x.txt', 'Ideas/noext'])
+    it(`create_note refuses ${p}`, async () => {
+      await expect(runTool('obsidian_create_note', { file_path: p, content: 'x' }, ctx)).rejects.toThrow(/not writable|Not a writable note type/);
+      await expect(fs.access(path.join(vp, p))).rejects.toThrow();
+    });
+  it('allows .base and .canvas', async () => {
+    await runTool('obsidian_create_note', { file_path: 'views/a.base', content: 'filters: {}' }, ctx);
+    await runTool('obsidian_create_note', { file_path: 'b.canvas', content: '{}' }, ctx);
+    expect(reindex).not.toHaveBeenCalled();
+  });
+  it('move_note refuses a non-note or hidden destination and leaves the source', async () => {
+    await expect(runTool('obsidian_move_note', { source_path: 'a.md', dest_path: 'a.txt' }, ctx)).rejects.toThrow(/Not a writable note type/);
+    await expect(runTool('obsidian_move_note', { source_path: 'a.md', dest_path: '.trash/a.md' }, ctx)).rejects.toThrow(/not writable/);
+    await fs.access(path.join(vp, 'a.md'));
+  });
+  it('append_note refuses an existing non-note file', async () => {
+    await fs.mkdir(path.join(vp, '.obsidian'));
+    await fs.writeFile(path.join(vp, '.obsidian', 'app.json'), '{}');
+    await expect(runTool('obsidian_append_note', { file_path: '.obsidian/app.json', content: 'x' }, ctx)).rejects.toThrow(/not writable/);
+    expect(await fs.readFile(path.join(vp, '.obsidian', 'app.json'), 'utf-8')).toBe('{}');
+  });
+  it('applies schema rules to ./ and ../ spellings', async () => {
+    await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ rules: [{ prefix: 'Engineering/', required: ['type'] }] }));
+    for (const p of ['./Engineering/x.md', 'sub/../Engineering/y.md'])
+      await expect(runTool('obsidian_create_note', { file_path: p, content: '# no type' }, ctx)).rejects.toThrow('missing required field "type"');
+  });
+  it('reindexes the normalized path', async () => {
+    await runTool('obsidian_append_note', { file_path: './sub/../a.md', content: 'more' }, ctx);
+    expect(reindex).toHaveBeenCalledWith(vp, 'a.md');
+  });
+});
