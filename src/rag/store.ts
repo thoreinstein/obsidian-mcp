@@ -105,7 +105,7 @@ export class VaultIndexer {
       }
       log.warn(`Embedding batch returned ${vectors.length} vectors for ${texts.length} chunks; retrying one-by-one.`);
     } catch (batchErr) {
-      console.error(`Failed to embed batch of ${texts.length} chunks; retrying one-by-one:`, batchErr);
+      log.warn(`Failed to embed batch of ${texts.length} chunks; retrying one-by-one:`, batchErr);
     }
 
     const recovered: NoteChunk[] = [];
@@ -117,7 +117,7 @@ export class VaultIndexer {
           vector
         });
       } catch (singleErr) {
-        console.error(`Failed to embed chunk ${meta[i]?.id ?? i}:`, singleErr);
+        log.error(`Failed to embed chunk ${meta[i]?.id ?? i}:`, singleErr);
       }
     }
     return recovered;
@@ -205,7 +205,7 @@ export class VaultIndexer {
       log.debug(`Indexed ${chunks.length} chunks for ${relativePath}.`);
       return { success: true, chunks: chunks.length };
     } catch (err) {
-      console.error(`Failed to index file ${filePath}:`, err);
+      log.error(`Failed to index file ${filePath}:`, err);
       return { success: false, message: `Failed to index ${relativePath}: ${(err instanceof Error ? err.message : String(err)).split(filePath).join(relativePath).split(vaultPath).join('<vault>')}` };
     }
   }
@@ -255,7 +255,7 @@ export class VaultIndexer {
       // Tables built before chunks carried note metadata can't take new rows; rebuild.
       const schema = await (await db.openTable('notes')).schema();
       if (!schema.fields.some(f => f.name === 'title') || !schema.fields.some(f => f.name === 'heading')) {
-        console.error('Index schema predates note metadata or heading chunks; forcing full re-index.');
+        log.warn('Index schema predates note metadata or heading chunks; forcing full re-index.');
         force = true;
       }
     }
@@ -317,7 +317,7 @@ export class VaultIndexer {
             const meta = extractNoteMeta(relativePath, data, body, mtime);
             return buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv(), meta);
           } catch (err) {
-            console.error(`Failed to process file ${filePath}:`, err);
+            log.error(`Failed to process file ${filePath}:`, err);
             return null;
           }
         })
@@ -349,7 +349,7 @@ export class VaultIndexer {
 
     // Early exit: nothing changed
     if (canIncremental && allTexts.length === 0 && deletedPaths.length === 0) {
-      log.debug('Index is up to date, no changes detected.');
+      log.info('Index is up to date, no changes detected.');
       // Indexes built before hybrid search have no full-text index yet.
       const table = await db.openTable('notes');
       if (!(await this.hasFtsIndex(table))) await this.ensureFtsIndex(table);
@@ -530,7 +530,7 @@ export class VaultIndexer {
       if (where) ftsQuery = ftsQuery.where(where);
       fts = await ftsQuery.limit(fetchLimit).toArray();
     } catch (err) {
-      console.error('Full-text search failed; using vector results only:', err);
+      log.warn('Full-text search failed; using vector results only:', err);
     }
 
     return dedupeByPath(rrfMerge([vec, fts]), limit);

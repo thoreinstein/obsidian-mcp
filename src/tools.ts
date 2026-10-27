@@ -4,7 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
-import { readForEdit, writeAtomic } from './note-write.js';
+import { readForEdit, writeAtomic, StaleNoteError } from './note-write.js';
 import { grepVault } from './regex-worker.js';
 import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, splitCode, validateFrontmatter, resolveVaultPath, FRONTMATTER_OPTIONS } from './utils.js';
 
@@ -499,7 +499,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         const data = matter(content, FRONTMATTER_OPTIONS).data;
         return Object.keys(data).length ? matter.stringify('', data, FRONTMATTER_OPTIONS) : '';
       }
-      const maxChars = args.max_chars === undefined ? 100000 : Number(args.max_chars);
+      const maxChars = args.max_chars === undefined ? 100000 : Math.floor(Number(args.max_chars));
+      if (!(maxChars >= 0)) throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for obsidian_read_note: "max_chars" must be 0 or more');
       const cap = (text: string): string => maxChars > 0 && text.length > maxChars
         ? `${text.slice(0, maxChars)}\n…(truncated at ${maxChars} of ${text.length} characters; use heading or obsidian_get_note_outline to read part of this note)`
         : text;
@@ -699,7 +700,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const to = { name: path.basename(dest, '.md'), path: noExt(dest) };
       // A bare [[name]] only points at this note when no other note shares the name.
       const unique = allFiles.filter(f => path.basename(f, '.md').toLowerCase() === from.name.toLowerCase()).length === 1;
-      const updated: string[] = [], skipped: string[] = [], stale: string[] = [], refused: string[] = [];
+      const updated: string[] = [], skipped: string[] = [], stale: string[] = [], refused: string[] = [], unreadable: string[] = [];
       const scanFiles = await glob('**/*.md', { cwd: vp });
       const contents = await readNotes(vp, scanFiles);
       for (const [i, f] of scanFiles.entries()) {
@@ -721,11 +722,12 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         }
         // Re-read just before writing; skip a note that changed since the scan rather than clobber it.
         const fresh = await readForEdit(target).catch(() => null);
-        if (!fresh || fresh.content !== content) { stale.push(rel); continue; }
+        if (!fresh) { unreadable.push(rel); continue; }
+        if (fresh.content !== content) { stale.push(rel); continue; }
         try {
           await writeAtomic(target, next, { expectedMtimeMs: fresh.mtimeMs, displayPath: rel });
         } catch (e) {
-          if (!(e instanceof Error) || !e.message.startsWith('Note changed on disk since it was read')) throw e;
+          if (!(e instanceof StaleNoteError)) throw e;
           stale.push(rel);
           continue;
         }
@@ -737,6 +739,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       if (skipped.length) out += `; left links in ${notes(skipped.length, 'read-only ')} unchanged: ${skipped.join(', ')}`;
       if (refused.length) out += `; refused ${refused.length} note(s) outside the write policy: ${refused.join(', ')}`;
       if (stale.length) out += `; skipped ${stale.length} changed note(s): ${stale.join(', ')}`;
+      if (unreadable.length) out += `; could not read ${notes(unreadable.length)}: ${unreadable.join(', ')}`;
       return out;
     }
     case 'obsidian_update_frontmatter': {

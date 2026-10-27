@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { readForEdit, writeAtomic } from './note-write.js';
+import { readForEdit, writeAtomic, StaleNoteError } from './note-write.js';
 
 let dir: string;
 beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), 'note-write-')); });
@@ -46,5 +46,21 @@ describe('writeAtomic', () => {
     expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
     expect(await fs.readFile(real, 'utf-8')).toBe('new');
     expect((await fs.readdir(dir)).filter(f => f.includes('.tmp-'))).toEqual([]);
+  });
+
+  it('keeps the note mode', async () => {
+    const abs = path.join(dir, 'x.md');
+    await fs.writeFile(abs, 'old');
+    await fs.chmod(abs, 0o600);
+    await writeAtomic(abs, 'new', { displayPath: 'x.md' });
+    expect((await fs.stat(abs)).mode & 0o777).toBe(0o600);
+  });
+
+  it('throws StaleNoteError for a changed note', async () => {
+    const abs = path.join(dir, 'x.md');
+    await fs.writeFile(abs, 'old');
+    const { mtimeMs } = await readForEdit(abs);
+    await fs.utimes(abs, new Date(Date.now() + 5000), new Date(Date.now() + 5000));
+    await expect(writeAtomic(abs, 'new', { expectedMtimeMs: mtimeMs, displayPath: 'x.md' })).rejects.toBeInstanceOf(StaleNoteError);
   });
 });

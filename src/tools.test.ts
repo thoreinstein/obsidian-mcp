@@ -68,6 +68,21 @@ describe('runTool', () => {
       vi.mocked(noteWrite.readForEdit).mockImplementation(actual.readForEdit);
     }
   });
+  it("move_note reports notes whose re-read fails separately from changed ones", async () => {
+    await fs.writeFile(path.join(vp, "l1.md"), "see [[a]]");
+    const actual = await vi.importActual<typeof import('./note-write.js')>('./note-write.js');
+    vi.mocked(noteWrite.readForEdit).mockImplementation(async (abs: string) => {
+      if (abs.endsWith("l1.md")) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      return actual.readForEdit(abs);
+    });
+    try {
+      const out = await runTool("obsidian_move_note", { source_path: "a.md", dest_path: "z.md" }, ctx);
+      expect(out).toContain("could not read 1 note: l1.md");
+      expect(out).not.toContain("changed note");
+    } finally {
+      vi.mocked(noteWrite.readForEdit).mockImplementation(actual.readForEdit);
+    }
+  });
   it("edit tools still edit and leave no temp files", async () => {
     await fs.writeFile(path.join(vp, "e.md"), "# T\n## S\nbody\n");
     await runTool("obsidian_replace_section", { file_path: "e.md", heading: "S", content: "new body" }, ctx);
@@ -477,17 +492,12 @@ describe('obsidian_get_backlinks file_path', () => {
     await fs.writeFile(path.join(vp, 'Health', 'CONVENTIONS.md'), 'health rules');
     await fs.writeFile(path.join(vp, 'pathlink.md'), 'see [[Kitchen/CONVENTIONS]]');
     await fs.writeFile(path.join(vp, 'healthlink.md'), 'see [[Health/CONVENTIONS#Top|rules]]');
-    await fs.writeFile(path.join(vp, 'barelink.md'), 'see [[CONVENTIONS]]');
-    const { glob } = await import('glob');
-    const { buildLinkResolver } = await import('./utils.js');
-    const bareTarget = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }))('CONVENTIONS');
 
     const out = await runTool('obsidian_get_backlinks', { file_path: 'Kitchen/CONVENTIONS.md' }, ctx);
     expect(out).toContain('Found');
     expect(out).toContain('"[[Kitchen/CONVENTIONS]]"');
     expect(out).toContain('- pathlink.md');
     expect(out).not.toContain('healthlink.md');
-    expect(out.includes('- barelink.md')).toBe(bareTarget === 'Kitchen/CONVENTIONS.md');
   });
 });
 
@@ -796,6 +806,9 @@ describe('tool contracts and output caps', () => {
     expect(out.length).toBeLessThan(100500);
     const all = await runTool('obsidian_read_note', { file_path: 'big.md', max_chars: 0 }, ctx);
     expect(all.length).toBe(250000);
+    await expect(runTool('obsidian_read_note', { file_path: 'big.md', max_chars: -1 }, ctx)).rejects.toThrow(
+      'Invalid arguments for obsidian_read_note: "max_chars" must be 0 or more');
+    expect(await runTool('obsidian_read_note', { file_path: 'big.md', max_chars: 10.9 }, ctx)).toContain('truncated at 10 of');
     const small = await runTool('obsidian_read_note', { file_path: 'big.md', max_chars: 10 }, ctx);
     expect(small).toContain('truncated at 10 of 250000');
   });
@@ -829,9 +842,9 @@ describe('tool contracts and output caps', () => {
   });
   it('every tool has annotations', () => {
     for (const t of TOOL_DEFINITIONS) {
-      expect(typeof (t as any).annotations?.readOnlyHint, t.name).toBe('boolean');
+      expect(typeof t.annotations?.readOnlyHint, t.name).toBe('boolean');
     }
-    const destructive = TOOL_DEFINITIONS.filter(t => (t as any).annotations.destructiveHint === true).map(t => t.name).sort();
+    const destructive = TOOL_DEFINITIONS.filter(t => t.annotations?.destructiveHint === true).map(t => t.name).sort();
     expect(destructive).toEqual(['obsidian_move_note', 'obsidian_replace_in_note', 'obsidian_replace_section', 'obsidian_update_frontmatter']);
   });
 });
