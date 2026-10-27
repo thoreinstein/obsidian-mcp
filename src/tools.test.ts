@@ -630,7 +630,7 @@ describe('obsidian_search_notes order', () => {
       expected.push(`${name}:1: needle ${i}`);
     }
     const out = await runTool('obsidian_search_notes', { query: 'needle' }, ctx);
-    const lines = out.split('\n').filter(l => l.startsWith('n'));
+    const lines = out.split('\n').filter(l => /^n\d\d\.md:/.test(l));
     expect(lines).toEqual(expected);
     expect(await runTool('obsidian_search_notes', { query: 'needle' }, ctx)).toBe(out);
   });

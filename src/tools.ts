@@ -320,7 +320,7 @@ async function findBacklinks(vp: string, target: string): Promise<string[]> {
   const contents = await readNotes(vp, files);
   files.forEach((f, i) => {
     const content = contents[i];
-    if (content === null) return;
+    if (content === null || !linkRegex.test(content)) return;
     const prose = splitCode(content).filter(seg => !seg.code).map(seg => seg.text).join('\n');
     if (linkRegex.test(prose)) backlinks.push(f);
   });
