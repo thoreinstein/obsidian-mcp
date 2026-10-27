@@ -34,10 +34,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { VaultIndexer } from './rag/store.js';
 import { log } from './log.js';
-import { buildInstructions, loadVaultSchema, parseCliArgs, validateFrontmatter, type VaultSchema } from './utils.js';
-import { runEval } from './rag/eval.js';
+import { buildInstructions } from './utils.js';
 import { createVaultResolver, loadAllowedRoots, type VaultConfig } from './vault.js';
-import { hookNotePath } from './hooks.js';
+import { runCli } from './cli.js';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 const indexer = new VaultIndexer();
@@ -91,84 +90,16 @@ const ctx: ToolContext = {
 (async () => {
   vault = createVaultResolver(loadAllowedRoots(process.env, await loadConfig()), CONFIG_PATH);
 
-  // Handle CLI args for one-shot mode
-  const args = process.argv.slice(2);
-
-  // If arguments start with a tool name (simple heuristic)
-  const knownTools = [...TOOL_DEFINITIONS.map(t => t.name), 'validate_frontmatter', 'obsidian_rag_eval'];
-
-  if (args.length > 0 && knownTools.includes(args[0])) {
-    const toolName = args[0];
-    const toolArgs = args.slice(1);
-
-    // One-shot CLI exits right after the tool returns, so a background reindex would be killed mid-flight.
-    // Keep the CLI's historical behavior (no auto-reindex on writes).
-    ctx.reindex = () => {};
-    ctx.allowForceReindex = true;
-
-    const parsedArgs: any = parseCliArgs(toolArgs);
-
-    try {
-        let result: string;
-        if (toolName === 'obsidian_rag_index' && parsedArgs.hook) {
-            const inputStr = await readStdin();
-            if (!inputStr) {
-                process.exit(0);
-            }
-            let input: any;
-            try { input = JSON.parse(inputStr); } catch { process.exit(0); }
-            const hookFp = input.tool_input?.file_path;
-            if (!hookFp) {
-                // No file_path in hook input — exit cleanly
-                process.exit(0);
-            }
-            const hookVault = input.tool_input?.vault_path || parsedArgs.vault_path || undefined;
-            let hvp: string;
-            try { hvp = vault.getVaultPath(hookVault); } catch { process.exit(0); }
-            const rel = await hookNotePath(hvp!, String(hookFp));
-            if (rel === null) { process.exit(0); }
-            result = await runTool(toolName, { ...parsedArgs, vault_path: hookVault, file_path: rel }, ctx);
-        } else if (toolName === 'obsidian_rag_eval') {
-            if (typeof parsedArgs.file !== 'string') throw new Error('obsidian_rag_eval requires --file <queries.json>');
-            result = await runEval(parsedArgs.file, (q, opts) => indexer.search(q, opts));
-        } else if (toolName !== 'validate_frontmatter') {
-            result = await runTool(toolName, parsedArgs, ctx);
-        } else {
-            if (!parsedArgs.hook) { process.exit(0); }
-            const inputStr = await readStdin();
-            if (!inputStr) { process.exit(0); }
-            let input: any;
-            try { input = JSON.parse(inputStr); } catch { process.exit(0); }
-
-            const filePath = String(input.tool_input?.file_path ?? '');
-            const content = String(input.tool_input?.content ?? '');
-            if (!filePath || !content) { process.exit(0); }
-
-            let vp: string;
-            try { vp = vault.getVaultPath(input.tool_input?.vault_path || undefined); } catch { process.exit(0); }
-
-            // Only vault notes are validated; anything else is not ours to block.
-            const relPath = await hookNotePath(vp!, filePath);
-            if (relPath === null) { process.exit(0); }
-
-            let schema: VaultSchema | null;
-            try { schema = await loadVaultSchema(vp!); } catch { process.exit(0); } // unreadable schema: silent no-op
-            if (!schema) { process.exit(0); }
-
-            const errors = validateFrontmatter(relPath, content, schema!);
-            if (errors.length > 0) {
-                console.error(`[obsidian-mcp] Blocked: "${relPath}" has invalid frontmatter: ${errors.join('; ')}`);
-                process.exit(2);
-            }
-            process.exit(0);
-        }
-        console.log(result);
-        process.exit(0);
-    } catch (error: any) {
-        console.error(error.message);
-        process.exit(1);
-    }
-  }
+  // One-shot CLI and hook invocations; null means argv is not a tool call, so start the MCP server.
+  const code = await runCli(process.argv.slice(2), {
+    ctx,
+    vault,
+    readStdin,
+    out: s => console.log(s),
+    err: s => console.error(s),
+    indexer,
+  });
+  if (code !== null) process.exit(code);
 
   // MCP Server Mode
   let startupVault: string | null = null;
