@@ -34,6 +34,21 @@ afterEach(async () => {
 });
 
 describe('runTool', () => {
+  it("move_note does not rewrite links through a symlink that leaves the vault", async () => {
+    const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "outside-"));
+    try {
+      await fs.writeFile(path.join(outDir, "outside.md"), "see [[a]]");
+      await fs.symlink(path.join(outDir, "outside.md"), path.join(vp, "linked.md"));
+      await fs.writeFile(path.join(vp, "l2.md"), "see [[a]]");
+      const out = await runTool("obsidian_move_note", { source_path: "a.md", dest_path: "b.md" }, ctx);
+      expect(await fs.readFile(path.join(outDir, "outside.md"), "utf-8")).toBe("see [[a]]");
+      expect(out).toContain("refused 1 note(s)");
+      expect(out).toContain("linked.md");
+      expect(await fs.readFile(path.join(vp, "l2.md"), "utf-8")).toBe("see [[b]]");
+    } finally {
+      await fs.rm(outDir, { recursive: true, force: true });
+    }
+  });
   it("move_note reports notes it could not update", async () => {
     await fs.writeFile(path.join(vp, "l1.md"), "see [[a]]");
     await fs.writeFile(path.join(vp, "l2.md"), "see [[a]]");
