@@ -551,3 +551,11 @@ describe('argument validation', () => {
     expect(high.split('\n').filter((l) => /^\S+:\d+: /.test(l)).length).toBe(100);
   });
 });
+
+describe('rag_index path', () => {
+  it('indexes under the normalized relative path', async () => {
+    const indexFile = vi.fn(async () => ({ success: true }));
+    await runTool('obsidian_rag_index', { file_path: './sub/../a.md' }, { ...ctx, indexer: { indexFile } as any });
+    expect(indexFile).toHaveBeenCalledWith(vp, 'a.md');
+  });
+});

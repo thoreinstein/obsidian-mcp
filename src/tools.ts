@@ -555,9 +555,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_rag_index': {
       const vp = vaultArg();
       const fp = args.file_path ? String(args.file_path) : null;
-      if (fp) await resolveVaultPath(vp, fp);
+      const rel = fp ? vaultRel(vp, await resolveVaultPath(vp, fp)) : null;
       const force = isTrue(args.force_reindex) || isTrue(args.force);
-      const result = fp ? await ctx.indexer.indexFile(vp, fp) : await ctx.indexer.indexVault(vp, force);
+      const result = rel ? await ctx.indexer.indexFile(vp, rel) : await ctx.indexer.indexVault(vp, force);
       return JSON.stringify(result);
     }
     case 'obsidian_rag_query': {
