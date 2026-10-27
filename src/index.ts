@@ -39,6 +39,7 @@ import { VaultIndexer } from './rag/store.js';
 import { buildInstructions, loadVaultSchema, parseCliArgs, validateFrontmatter, type VaultSchema } from './utils.js';
 import { runEval } from './rag/eval.js';
 import { createVaultResolver, loadAllowedRoots, type VaultConfig } from './vault.js';
+import { hookNotePath } from './hooks.js';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 const indexer = new VaultIndexer();
@@ -120,13 +121,19 @@ const ctx: ToolContext = {
             if (!inputStr) {
                 process.exit(0);
             }
-            const input = JSON.parse(inputStr);
+            let input: any;
+            try { input = JSON.parse(inputStr); } catch { process.exit(0); }
             const hookFp = input.tool_input?.file_path;
             if (!hookFp) {
                 // No file_path in hook input — exit cleanly
                 process.exit(0);
             }
-            result = await runTool(toolName, { ...parsedArgs, vault_path: input.tool_input?.vault_path || parsedArgs.vault_path, file_path: hookFp }, ctx);
+            const hookVault = input.tool_input?.vault_path || parsedArgs.vault_path || undefined;
+            let hvp: string;
+            try { hvp = vault.getVaultPath(hookVault); } catch { process.exit(0); }
+            const rel = await hookNotePath(hvp!, String(hookFp));
+            if (rel === null) { process.exit(0); }
+            result = await runTool(toolName, { ...parsedArgs, vault_path: hookVault, file_path: rel }, ctx);
         } else if (toolName === 'obsidian_rag_eval') {
             if (typeof parsedArgs.file !== 'string') throw new Error('obsidian_rag_eval requires --file <queries.json>');
             result = await runEval(parsedArgs.file, (q, opts) => indexer.search(q, opts));
@@ -146,12 +153,14 @@ const ctx: ToolContext = {
             let vp: string;
             try { vp = vault.getVaultPath(input.tool_input?.vault_path || undefined); } catch { process.exit(0); }
 
+            // Only vault notes are validated; anything else is not ours to block.
+            const relPath = await hookNotePath(vp!, filePath);
+            if (relPath === null) { process.exit(0); }
+
             let schema: VaultSchema | null;
             try { schema = await loadVaultSchema(vp!); } catch { process.exit(0); } // unreadable schema: silent no-op
             if (!schema) { process.exit(0); }
 
-            // Hook file_path may be absolute; rules match vault-relative paths.
-            const relPath = path.isAbsolute(filePath) ? path.relative(vp!, filePath) : filePath;
             const errors = validateFrontmatter(relPath, content, schema!);
             if (errors.length > 0) {
                 console.error(`[obsidian-mcp] Blocked: "${relPath}" has invalid frontmatter: ${errors.join('; ')}`);

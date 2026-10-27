@@ -345,7 +345,7 @@ async function writeEdit(vp: string, relPath: string, filePath: string, before: 
 }
 
 /** Normalized, forward-slash vault-relative path of an absolute path inside the vault. */
-const vaultRel = (vp: string, abs: string) => path.relative(path.resolve(vp), abs).split(path.sep).join('/');
+export const vaultRel = (vp: string, abs: string) => path.relative(path.resolve(vp), abs).split(path.sep).join('/');
 
 /**
  * True if `abs` falls under one of the `readonly` prefixes. Compares the real path (symlinks resolved through the
