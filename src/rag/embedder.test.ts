@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
-import { EMBEDDER_ID, Embedder, modelCacheDir } from './embedder.js';
+import { pipeline } from '@huggingface/transformers';
+import { EMBEDDER_ID, Embedder, MODEL_NAME, MODEL_REVISION, loadExtractor, modelCacheDir, modelSource } from './embedder.js';
 
 describe('embedder', () => {
   it('modelCacheDir honors OBSIDIAN_MCP_MODEL_DIR and XDG_CACHE_HOME', () => {
@@ -31,5 +32,25 @@ describe('embedder', () => {
     expect(vector).toHaveLength(384);
     const norm = Math.sqrt(vector.reduce((sum, x) => sum + x * x, 0));
     expect(Math.abs(norm - 1)).toBeLessThan(1e-3);
+  }, 120_000);
+
+  it('modelSource picks the cached directory for the revision, else the model id, else throws offline', () => {
+    const cache = '/cache';
+    expect(modelSource(cache, 'org/m', 'abc123', true, true)).toBe(path.join(cache, 'org/m', 'abc123'));
+    expect(modelSource(cache, 'org/m', 'abc123', true, false)).toBe(path.join(cache, 'org/m', 'abc123'));
+    expect(modelSource(cache, 'org/m', 'main', true, false)).toBe(path.join(cache, 'org/m'));
+    expect(modelSource(cache, 'org/m', 'abc123', false, true)).toBe('org/m');
+    expect(() => modelSource(cache, 'org/m', 'abc123', false, false)).toThrow(path.join(cache, 'org/m', 'abc123'));
+    expect(() => modelSource(cache, 'org/m', 'main', false, false)).toThrow(path.join(cache, 'org/m'));
+  });
+
+  it('loading by model id and from the local cache gives identical vectors', async () => {
+    await Embedder.getInstance().embed('warm the cache');
+    const text = 'tmux pane layout';
+    const byId = await pipeline('feature-extraction', MODEL_NAME, { dtype: 'q8', revision: MODEL_REVISION });
+    const local = await loadExtractor();
+    const a = await byId(text, { pooling: 'mean', normalize: true });
+    const b = await local(text, { pooling: 'mean', normalize: true });
+    expect(Array.from(b.data)).toEqual(Array.from(a.data));
   }, 120_000);
 });

@@ -45,7 +45,7 @@ cd obsidian-mcp && npm install && npm run build
 
 Requires Node >= 22.
 
-The build bundles everything except the native packages `@lancedb/lancedb` and `onnxruntime-node`, which stay external and are the only `dependencies` installed by `npm install`. `onnxruntime-node` is pinned to the exact version `@huggingface/transformers` requires. The bundled packages, `@huggingface/transformers` among them, live in `devDependencies` because they are compiled into `dist/index.js`. Image pipelines are unused, so the build replaces `sharp` with an empty stub and never loads it.
+The build bundles everything except the native packages `@lancedb/lancedb` and `onnxruntime-node`, which stay external and are the only `dependencies` installed by `npm install`. `onnxruntime-node` is pinned to the exact version `@huggingface/transformers` requires. The bundled packages, `@huggingface/transformers` among them, live in `devDependencies` because they are compiled into `dist/index.js`. Image pipelines are unused, so the build replaces `sharp` with an empty stub and never loads it. `sharp` is still installed, as a transitive dependency of `@huggingface/transformers` (which LanceDB lists as optional), but this server never loads it.
 
 ## Configure
 
@@ -109,7 +109,7 @@ Override the directory with `OBSIDIAN_MCP_DATA_DIR`, the config file with `OBSID
 
 The embedding model defaults to `Xenova/all-MiniLM-L6-v2`, pinned to revision `751bff37182d3f1213fa05d7196b954e230abad9` and loaded as `q8`; set `OBSIDIAN_RAG_MODEL` to use another. Other models use revision `main` unless `OBSIDIAN_RAG_MODEL_REVISION` is set. Non-default models get their own index (`lancedb-<model>/`, `file-hashes-<model>.json`, with `/` in the model name replaced by `__`), so switching models never mixes embeddings. Reindex after switching.
 
-The model downloads once (about 23 MB) into the model cache on first use. Set `OBSIDIAN_MCP_OFFLINE=1` to never touch the network; the model must then already be in the cache.
+The model downloads once (about 23 MB) into the model cache on first use. Once the cache holds the model, it loads from there without the network. Set `OBSIDIAN_MCP_OFFLINE=1` to forbid the first download too: with an incomplete cache, loading then fails with an error naming the cache directory.
 
 The index meta records the embedder that built it (`transformers@4/<model>@<revision>/q8`). An index built by another embedder, including every index built before the move to `@huggingface/transformers` 4, is rebuilt in full by the next `obsidian_rag_index` (the server's startup index does this). Until then, queries log a warning that results may be degraded, and single-note reindexing is refused.
 

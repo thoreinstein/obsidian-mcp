@@ -66,10 +66,15 @@ afterAll(async () => {
 describe('index ownership', () => {
   it('adopts an index with no meta file', async () => {
     await fs.rm(metaFile, { force: true });
+    const { EMBEDDER_ID } = await import('./embedder.js');
     const res = await indexer.indexVault(vaultA);
     expect(res.success).toBe(true);
+    expect(res.message ?? '').not.toMatch(/up to date/);
+    const table = await (indexer as any).getTable();
+    expect(res.chunks).toBe(await table.countRows());
     const meta = JSON.parse(await fs.readFile(metaFile, 'utf-8'));
     expect(meta.vault).toBe(await fs.realpath(vaultA));
+    expect(meta.embedder).toBe(EMBEDDER_ID);
   }, 120_000);
 
   it('refuses to index a different vault', async () => {

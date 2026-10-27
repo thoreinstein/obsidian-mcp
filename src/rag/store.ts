@@ -40,8 +40,8 @@ function optimizeOptions() {
   return { cleanupOlderThan: new Date(Date.now() - VERSION_RETENTION_MS) };
 }
 
-/** search warns about an index built by another embedder once per process. */
-let warnedEmbedderMismatch = false;
+/** search checks the index's embedder once per process (and warns on a mismatch). */
+let embedderChecked = false;
 
 interface IndexMeta {
   vault?: string;
@@ -543,9 +543,11 @@ export class VaultIndexer {
     if (!table) {
         return [];
     }
-    if (!warnedEmbedderMismatch && (await this.readMeta()).embedder !== EMBEDDER_ID) {
-      warnedEmbedderMismatch = true;
-      log.warn(`Index was built by another embedder; results may be degraded until obsidian_rag_index rebuilds it with ${EMBEDDER_ID}.`);
+    if (!embedderChecked) {
+      embedderChecked = true;
+      if ((await this.readMeta()).embedder !== EMBEDDER_ID) {
+        log.warn(`Index was built by another embedder; results may be degraded until obsidian_rag_index rebuilds it with ${EMBEDDER_ID}.`);
+      }
     }
 
     const embedder = Embedder.getInstance();
