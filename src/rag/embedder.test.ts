@@ -44,13 +44,16 @@ describe('embedder', () => {
     expect(() => modelSource(cache, 'org/m', 'main', false, false)).toThrow(path.join(cache, 'org/m'));
   });
 
-  it('loading by model id and from the local cache gives identical vectors', async () => {
-    await Embedder.getInstance().embed('warm the cache');
-    const text = 'tmux pane layout';
-    const byId = await pipeline('feature-extraction', MODEL_NAME, { dtype: 'q8', revision: MODEL_REVISION });
-    const local = await loadExtractor();
-    const a = await byId(text, { pooling: 'mean', normalize: true });
-    const b = await local(text, { pooling: 'mean', normalize: true });
-    expect(Array.from(b.data)).toEqual(Array.from(a.data));
-  }, 120_000);
+  // The by-id load probes the network for the tokenizer even with a full cache.
+  describe.skipIf(process.env.OBSIDIAN_MCP_OFFLINE === '1')('by model id', () => {
+    it('loading by model id and from the local cache gives identical vectors', async () => {
+      await Embedder.getInstance().embed('warm the cache');
+      const text = 'tmux pane layout';
+      const byId = await pipeline('feature-extraction', MODEL_NAME, { dtype: 'q8', revision: MODEL_REVISION });
+      const local = await loadExtractor();
+      const a = await byId(text, { pooling: 'mean', normalize: true });
+      const b = await local(text, { pooling: 'mean', normalize: true });
+      expect(Array.from(b.data)).toEqual(Array.from(a.data));
+    }, 120_000);
+  });
 });

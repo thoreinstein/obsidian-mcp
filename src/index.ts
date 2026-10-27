@@ -4,8 +4,15 @@
 try {
     require.resolve('@lancedb/lancedb');
     require.resolve('onnxruntime-node');
+    // Bump with @huggingface/transformers: the bundle needs exactly the onnxruntime-node it was built against.
+    const REQUIRED_ORT = '1.30.0';
+    const ortVersion = require('onnxruntime-node/package.json').version;
+    if (ortVersion !== REQUIRED_ORT) {
+        throw new Error(`onnxruntime-node ${ortVersion} installed, ${REQUIRED_ORT} required`);
+    }
 } catch (e) {
     console.error('\n[Obsidian MCP] Error: Required native dependencies are missing.');
+    console.error(`(${e instanceof Error ? e.message : e})`);
     console.error('This usually happens if "npm install" was not run or failed.');
     console.error('Please run the following command in the extension directory:');
     console.error(`  cd ${require('path').join(__dirname, '..')} && npm install\n`);
@@ -26,6 +33,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { VaultIndexer } from './rag/store.js';
+import { log } from './log.js';
 import { buildInstructions, loadVaultSchema, parseCliArgs, validateFrontmatter, type VaultSchema } from './utils.js';
 import { runEval } from './rag/eval.js';
 import { createVaultResolver, loadAllowedRoots, type VaultConfig } from './vault.js';
@@ -40,7 +48,8 @@ function reindexInBackground(vaultPath: string, relativePath: string, removedPat
     reindexQueue = reindexQueue
         .then(async () => {
             if (removedPath) await indexer.removeFile(removedPath);
-            await indexer.indexFile(vaultPath, relativePath);
+            const res = await indexer.indexFile(vaultPath, relativePath);
+            if (!res.success) log.warn(`Background reindex of ${relativePath} refused: ${res.message}`);
         })
         .catch(err => console.error(`Background reindex failed for ${relativePath}:`, err));
 }

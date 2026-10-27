@@ -10,14 +10,15 @@ import { MODEL_NAME, MODEL_REVISION, loadExtractor, modelCacheDir } from './embe
 // and an earlier successful probe would hide a network request this test must prove never happens.
 const pinned = path.join(MODEL_NAME, MODEL_REVISION);
 
-beforeAll(() => {
-  // Fill the shared cache (no-op when it is already complete) in a child process, keeping this one cold.
-  const script = `require(${JSON.stringify(require.resolve('@huggingface/transformers'))}).env.cacheDir = ${JSON.stringify(modelCacheDir())};
-    require(${JSON.stringify(require.resolve('@huggingface/transformers'))}).pipeline('feature-extraction', ${JSON.stringify(MODEL_NAME)}, { dtype: 'q8', revision: ${JSON.stringify(MODEL_REVISION)} }).then(() => process.exit(0), e => { console.error(e); process.exit(1); });`;
-  execFileSync(process.execPath, ['-e', script], { stdio: 'ignore' });
-}, 120_000);
+// The child's by-id load probes the network even with a full cache.
+describe.skipIf(process.env.OBSIDIAN_MCP_OFFLINE === '1')('embedder without network', () => {
+  beforeAll(() => {
+    // Fill the shared cache (no-op when it is already complete) in a child process, keeping this one cold.
+    const script = `require(${JSON.stringify(require.resolve('@huggingface/transformers'))}).env.cacheDir = ${JSON.stringify(modelCacheDir())};
+      require(${JSON.stringify(require.resolve('@huggingface/transformers'))}).pipeline('feature-extraction', ${JSON.stringify(MODEL_NAME)}, { dtype: 'q8', revision: ${JSON.stringify(MODEL_REVISION)} }).then(() => process.exit(0), e => { console.error(e); process.exit(1); });`;
+    execFileSync(process.execPath, ['-e', script], { stdio: 'ignore' });
+  }, 120_000);
 
-describe('embedder without network', () => {
   it('loads from a complete cache with no network', async () => {
     // A cache holding only the pinned revision: no `main` copies for the unrevisioned probes to find.
     const cache = await fs.mkdtemp(path.join(os.tmpdir(), 'embedder-cache-'));
