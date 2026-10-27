@@ -38,9 +38,9 @@ import * as os from 'os';
 import { VaultIndexer } from './rag/store.js';
 import { buildInstructions, loadVaultSchema, parseCliArgs, validateFrontmatter, type VaultSchema } from './utils.js';
 import { runEval } from './rag/eval.js';
+import { createVaultResolver, loadAllowedRoots, type VaultConfig } from './vault.js';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
-let VAULT_PATH: string | null = process.env.OBSIDIAN_VAULT_PATH || null;
 const indexer = new VaultIndexer();
 
 // Reindex written notes in the background. Chained so concurrent writes don't interleave LanceDB delete/add.
@@ -55,30 +55,14 @@ function reindexInBackground(vaultPath: string, relativePath: string, removedPat
 }
 const CONFIG_PATH = process.env.OBSIDIAN_MCP_CONFIG ?? path.join(os.homedir(), '.config', 'obsidian-mcp', 'config.json');
 
-async function saveConfig(vaultPath: string) {
+async function loadConfig(): Promise<VaultConfig | null> {
     try {
-        await fs.writeFile(CONFIG_PATH, JSON.stringify({ vault_path: vaultPath }), 'utf-8');
-    } catch (e) { console.error("Failed to save config", e); }
-}
-
-async function loadConfig(): Promise<string | null> {
-    try {
-        const data = await fs.readFile(CONFIG_PATH, 'utf-8');
-        return JSON.parse(data).vault_path;
+        return JSON.parse(await fs.readFile(CONFIG_PATH, 'utf-8'));
     } catch { return null; }
 }
 
-/**
- * Helper to validate vault path
- */
-function getVaultPath(providedPath?: string): string {
-  const p = providedPath || VAULT_PATH;
-  if (!p) {
-    throw new McpError(ErrorCode.InvalidParams, "Vault path is not set. Use obsidian_set_vault or provide 'vault_path' argument.");
-  }
-  return p;
-}
-
+// Assigned at startup, after the config is read.
+let vault = createVaultResolver([], CONFIG_PATH);
 
 async function readStdin(): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -104,20 +88,14 @@ async function readStdin(): Promise<string> {
 }
 
 const ctx: ToolContext = {
-  getVaultPath,
-  setVaultPath: async (p: string) => {
-    VAULT_PATH = p;
-    await saveConfig(p);
-  },
+  getVaultPath: (override?: string) => vault.getVaultPath(override),
+  setVaultPath: (p: string) => vault.setVaultPath(p),
   indexer,
   reindex: reindexInBackground,
 };
 
 (async () => {
-  // Load config if environment variable is not set
-  if (!VAULT_PATH) {
-      VAULT_PATH = await loadConfig();
-  }
+  vault = createVaultResolver(loadAllowedRoots(process.env, await loadConfig()), CONFIG_PATH);
 
   // Handle CLI args for one-shot mode
   const args = process.argv.slice(2);
@@ -166,7 +144,7 @@ const ctx: ToolContext = {
             if (!filePath || !content) { process.exit(0); }
 
             let vp: string;
-            try { vp = getVaultPath(input.tool_input?.vault_path || undefined); } catch { process.exit(0); }
+            try { vp = vault.getVaultPath(input.tool_input?.vault_path || undefined); } catch { process.exit(0); }
 
             let schema: VaultSchema | null;
             try { schema = await loadVaultSchema(vp!); } catch { process.exit(0); } // unreadable schema: silent no-op
@@ -190,7 +168,9 @@ const ctx: ToolContext = {
   }
 
   // MCP Server Mode
-  const guidePath = VAULT_PATH ? path.join(VAULT_PATH, 'AGENTS.md') : null;
+  let startupVault: string | null = null;
+  try { startupVault = vault.getVaultPath(); } catch { /* no default vault */ }
+  const guidePath = startupVault ? path.join(startupVault, 'AGENTS.md') : null;
   let guide: string | null = null;
   if (guidePath) {
     try {
@@ -250,10 +230,10 @@ const ctx: ToolContext = {
   await server.connect(transport);
 
   // Catch up on notes changed outside the server (Obsidian, exporters, hand edits). Incremental, so unchanged notes are skipped.
-  const startupVault = VAULT_PATH;
-  if (startupVault) {
+  const reindexVault = startupVault;
+  if (reindexVault) {
     reindexQueue = reindexQueue
-      .then(() => indexer.indexVault(startupVault))
+      .then(() => indexer.indexVault(reindexVault))
       .catch(err => console.error('Startup reindex failed:', err));
   }
 })();

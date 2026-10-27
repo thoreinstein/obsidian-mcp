@@ -23,11 +23,11 @@ export class UnknownToolError extends Error {
 export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputSchema: object }> = [
   {
     name: 'obsidian_set_vault',
-    description: 'Set the default Obsidian vault path for this session.',
+    description: 'Switch the default vault for this server session to one of the configured vaults. Does not persist.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Absolute path to the Obsidian vault' },
+        path: { type: 'string', description: 'Absolute path to a configured vault' },
       },
       required: ['path'],
     },

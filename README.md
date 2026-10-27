@@ -53,11 +53,14 @@ Point an MCP client at it:
 }
 ```
 
-Vault path resolution order:
+Allowed vaults: the server only operates on vaults it is configured with. Roots come from, in order:
 
-1. `obsidian_set_vault` tool / `vault_path` argument (persisted)
+1. `OBSIDIAN_VAULT_PATHS` env var (several absolute paths, separated by the platform path delimiter, `:` on macOS/Linux)
 2. `OBSIDIAN_VAULT_PATH` env var
-3. Config file (see below)
+3. `vault_paths` (array) in the config file (see below)
+4. `vault_path` in the config file
+
+Relative entries are ignored. The default vault is the first root that exists. A `vault_path` argument on a tool, and `obsidian_set_vault`, must name one of these roots (matched by real path, so symlinks and trailing slashes are fine); anything else is rejected with `Vault not allowed`. `obsidian_set_vault` only switches the default for the current session and never writes the config file.
 
 ## Vault files
 
