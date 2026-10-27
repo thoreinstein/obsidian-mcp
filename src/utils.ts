@@ -383,7 +383,7 @@ export function findMatches(
 
 /** Summarise a note: frontmatter, headings (line numbers relative to the body after frontmatter), wikilinks, word count. */
 export function noteOutline(content: string): { frontmatter: Record<string, unknown>; headings: HeadingInfo[]; links: string[]; words: number } {
-  const parsed = matter(content);
+  const parsed = matter(content, FRONTMATTER_OPTIONS);
   return {
     frontmatter: parsed.data,
     headings: scanHeadings(parsed.content),
@@ -437,7 +437,7 @@ export function validateFrontmatter(filePath: string, content: string, schema: V
   if ((schema.exclude ?? []).some(p => filePath.startsWith(p))) return [];
   const rule = schema.rules.find(r => filePath.startsWith(r.prefix));
   if (!rule) return [];
-  const data = matter(content).data as Record<string, unknown>;
+  const data = matter(content, FRONTMATTER_OPTIONS).data as Record<string, unknown>;
   const errors: string[] = [];
   for (const field of rule.required ?? []) {
     if (!(field in data)) errors.push(`missing required field "${field}"`);

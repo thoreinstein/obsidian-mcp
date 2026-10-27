@@ -213,6 +213,13 @@ describe('noteOutline', () => {
   });
 });
 
+describe('noteOutline dates', () => {
+  it('noteOutline returns dates as written', () => {
+    const o = noteOutline('---\ncreated: 2026-10-20\n---\n# T\n');
+    expect(o.frontmatter.created).toBe('2026-10-20');
+  });
+});
+
 describe('buildInstructions', () => {
   it('generic only when no guide', () => {
     const s = buildInstructions(null);
@@ -240,6 +247,13 @@ describe('validateFrontmatter', () => {
     const errs = validateFrontmatter('a.md', '---\ntype: adr\n---\n', s);
     expect(errs).toHaveLength(1);
     expect(errs[0]).toMatch(/"adr" not allowed/);
+  });
+  it('accepts type: plan and rejects numeric type: 2026 with the allowed list', () => {
+    const s1: VaultSchema = { rules: [{ prefix: '', required: ['type'], allowed: { type: ['plan'] } }] };
+    expect(validateFrontmatter('a.md', '---\ntype: plan\n---\n', s1)).toEqual([]);
+    const errs = validateFrontmatter('a.md', '---\ntype: 2026\n---\n', s1);
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatch(/plan/);
   });
   it('reports missing required field', () => {
     expect(validateFrontmatter('a.md', 'no fm', s)).toEqual(['missing required field "type"']);

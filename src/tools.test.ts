@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import matter from 'gray-matter';
 import { runTool, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
 
 let vp: string;
@@ -82,6 +83,14 @@ describe('runTool', () => {
     const out = await runTool('obsidian_list_notes', { subfolder: 'sub' }, ctx);
     expect(out).toContain('sub/b.md');
     expect(out).not.toContain('a.md');
+  });
+  it('list_notes filter does not grow the gray-matter cache', async () => {
+    await fs.writeFile(path.join(vp, 'p.md'), '---\ntype: plan\n---\nbody');
+    const m = matter as unknown as { clearCache(): void; cache: Record<string, unknown> };
+    m.clearCache();
+    const out = await runTool('obsidian_list_notes', { type: 'plan' }, ctx);
+    expect(out).toContain('p.md');
+    expect(Object.keys(m.cache).length).toBe(0);
   });
   it('creates a note and reindexes', async () => {
     await runTool('obsidian_create_note', { file_path: 'c.md', content: 'x' }, ctx);

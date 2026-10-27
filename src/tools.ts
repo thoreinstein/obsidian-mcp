@@ -455,7 +455,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       if (want.type || want.status) {
         const kept: string[] = [];
         for (const f of files) {
-          const data = matter(await fs.readFile(path.join(vp, f), 'utf-8')).data;
+          const data = matter(await fs.readFile(path.join(vp, f), 'utf-8'), FRONTMATTER_OPTIONS).data;
           if ((!want.type || data.type === want.type) && (!want.status || data.status === want.status)) kept.push(f);
         }
         files = kept;
@@ -471,7 +471,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       }
       if (args.heading) {
         const heading = String(args.heading);
-        const body = matter(content).content;
+        const body = matter(content, FRONTMATTER_OPTIONS).content;
         const headings = scanHeadings(body);
         const idx = headings.findIndex(h => h.text === heading);
         if (idx === -1) throw new Error(`Heading "${heading}" not found. Headings: ${headings.map(h => h.text).join(', ')}`);

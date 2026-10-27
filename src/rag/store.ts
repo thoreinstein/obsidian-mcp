@@ -9,7 +9,7 @@ import { Embedder, MODEL_SLUG } from './embedder.js';
 import { buildEmbeddingInputs, ChunkingOptions, ChunkMetadata, extractNoteMeta } from './chunking.js';
 import { withCommitRetry } from './retry.js';
 import { planBatches } from './batching.js';
-import { buildWhereClause, dedupeByPath, rrfMerge, SearchFilters } from '../utils.js';
+import { buildWhereClause, dedupeByPath, FRONTMATTER_OPTIONS, rrfMerge, SearchFilters } from '../utils.js';
 
 function chunkingOptionsFromEnv(): ChunkingOptions {
   const minRaw = Number(process.env.OBSIDIAN_RAG_MIN_CHUNK_CHARS ?? '40');
@@ -162,7 +162,7 @@ export class VaultIndexer {
       await this.assertIndexVault(vaultPath);
       const content = await fs.readFile(filePath, 'utf-8');
       const { mtime } = await fs.stat(filePath);
-      const { data, content: body } = matter(content);
+      const { data, content: body } = matter(content, FRONTMATTER_OPTIONS);
 
       const meta = extractNoteMeta(relativePath, data, body, mtime);
       const { textsToEmbed, chunkMetadata } = buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv(), meta);
@@ -309,7 +309,7 @@ export class VaultIndexer {
 
             changedPaths.push(relativePath);
             const { mtime } = await fs.stat(filePath);
-            const { data, content: body } = matter(content);
+            const { data, content: body } = matter(content, FRONTMATTER_OPTIONS);
             const meta = extractNoteMeta(relativePath, data, body, mtime);
             return buildEmbeddingInputs(relativePath, body, chunkingOptionsFromEnv(), meta);
           } catch (err) {
