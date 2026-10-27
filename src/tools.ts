@@ -23,9 +23,10 @@ export class UnknownToolError extends Error {
   }
 }
 
-export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputSchema: object }> = [
+export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputSchema: object; annotations: Record<string, boolean> }> = [
   {
     name: 'obsidian_set_vault',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     description: 'Switch the default vault for this server session to one of the configured vaults. Does not persist.',
     inputSchema: {
       type: 'object',
@@ -37,6 +38,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_list_notes',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'List markdown files in the vault or a subdirectory, optionally filtered by frontmatter type and status.',
     inputSchema: {
       type: 'object',
@@ -50,13 +52,15 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_read_note',
-    description: 'Read the content of a specific note (Markdown). Optionally return only one section or only the frontmatter.',
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    description: 'Read the content of a specific note (Markdown). Optionally return only one section or only the frontmatter. Long results are truncated at max_chars (default 100000).',
     inputSchema: {
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Relative path to the note' },
         heading: { type: 'string', description: 'Return only this heading and its section body (first matching heading wins if the text repeats)' },
         frontmatter_only: { type: 'boolean', description: 'Return only the frontmatter as YAML (empty string if none)' },
+        max_chars: { type: 'number', description: 'Truncate the note or section result at this many characters (default 100000; 0 = no cap). Does not apply to frontmatter_only.' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
       required: ['file_path'],
@@ -64,6 +68,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_get_note_outline',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Get a note outline: frontmatter, headings, wikilinks and word count. Heading line numbers are 1-based and relative to the body after the frontmatter.',
     inputSchema: {
       type: 'object',
@@ -76,6 +81,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_create_note',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Create a new note with the given content.',
     inputSchema: {
       type: 'object',
@@ -89,6 +95,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_append_note',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Append text to the end of an existing note.',
     inputSchema: {
       type: 'object',
@@ -102,6 +109,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_get_daily_note',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     description: 'Get (or create) today\'s daily note.',
     inputSchema: {
       type: 'object',
@@ -112,6 +120,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_search_notes',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Grep the vault: returns path:line: text for each matching line (case-insensitive), plus filename matches.',
     inputSchema: {
       type: 'object',
@@ -127,6 +136,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_rag_index',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     description: 'Index the vault for semantic search (RAG). If file_path is provided, only that file is re-indexed. Incremental by default — only re-embeds changed files.',
     inputSchema: {
       type: 'object',
@@ -138,6 +148,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_rag_query',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Perform a semantic search on the indexed vault.',
     inputSchema: {
       type: 'object',
@@ -147,7 +158,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
         folder: { type: 'string', description: 'Only notes under this vault folder, e.g. "Engineering"' },
         type: { type: 'string', description: 'Only notes whose frontmatter type equals this' },
         status: { type: 'string', description: 'Only notes whose frontmatter status equals this' },
-        after: { type: 'string', description: 'Only notes dated on or after this day (YYYY-MM-DD)' },
+        after: { type: 'string', description: 'Only notes dated on or after this day (YYYY-MM-DD). Notes with no date are excluded.' },
         max_distance: { type: 'number', description: 'Drop semantic hits whose vector distance exceeds this (lower is closer); keyword hits are kept. Unset keeps all.' },
       },
       required: ['query'],
@@ -155,18 +166,20 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_get_backlinks',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Find all notes that link to a specific note.',
     inputSchema: {
       type: 'object',
       properties: {
-        file_name: { type: 'string', description: 'Name of the note to find backlinks for (without extension)' },
+        file_path: { type: 'string', description: 'Relative path to the note to find backlinks for' },
+        file_name: { type: 'string', description: 'Name of the note to find backlinks for (without extension); alternative to file_path' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
-      required: ['file_name'],
     },
   },
   {
     name: 'obsidian_get_related',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Get links out, backlinks and semantically similar notes for a note in one call.',
     inputSchema: {
       type: 'object',
@@ -180,6 +193,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_get_links',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Get all outgoing links from a specific note.',
     inputSchema: {
       type: 'object',
@@ -192,6 +206,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_move_note',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     description: 'Move or rename a note and update wikilinks that point at it. Refuses an existing destination.',
     inputSchema: {
       type: 'object',
@@ -206,13 +221,14 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_update_frontmatter',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     description: 'Update YAML frontmatter of a note safely. Supports single key/value or batch updates.',
     inputSchema: {
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Relative path to the note' },
         key: { type: 'string', description: 'Frontmatter key to update (single-key mode)' },
-        value: { type: 'string', description: 'New value for the key (JSON stringified if array/object; single-key mode)' },
+        value: { type: 'string', description: 'New value for the key (single-key mode). Parsed as JSON when valid (7, true, null, [..]); otherwise stored as a string.' },
         updates: { type: 'object', description: 'JSON object of key/value pairs to set at once (batch mode, alternative to key+value)' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
@@ -221,6 +237,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_append_daily_log',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Append text to a specific heading in today\'s daily note.',
     inputSchema: {
       type: 'object',
@@ -234,6 +251,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_replace_section',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     description: 'Replace the body under a heading (up to the next heading of equal/higher level, or EOF). The heading line itself is preserved.',
     inputSchema: {
       type: 'object',
@@ -248,7 +266,8 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_insert_at_heading',
-    description: 'Insert content under a specific heading. If heading not found, appends it as a new ## section.',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description: 'Insert content under a specific heading. If heading not found, appends it as a new ## section (the result says so).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -263,6 +282,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_replace_in_note',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     description: 'Replace the first occurrence of a specific text string in a note. Use for surgical inline edits, e.g. adding a wikilink to existing text.',
     inputSchema: {
       type: 'object',
@@ -277,6 +297,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_get_broken_links',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Find all wikilinks in the vault (or a subfolder) that point to non-existent notes. Returns broken links grouped by source file.',
     inputSchema: {
       type: 'object',
@@ -288,6 +309,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   },
   {
     name: 'obsidian_get_orphans',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'List notes that no other note links to. Use linked_from to count only links from one area, e.g. Engineering notes missing from every MOC.',
     inputSchema: {
       type: 'object',
@@ -477,6 +499,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         const data = matter(content, FRONTMATTER_OPTIONS).data;
         return Object.keys(data).length ? matter.stringify('', data, FRONTMATTER_OPTIONS) : '';
       }
+      const maxChars = args.max_chars === undefined ? 100000 : Number(args.max_chars);
+      const cap = (text: string): string => maxChars > 0 && text.length > maxChars
+        ? `${text.slice(0, maxChars)}\n…(truncated at ${maxChars} of ${text.length} characters; use heading or obsidian_get_note_outline to read part of this note)`
+        : text;
       if (args.heading) {
         const heading = String(args.heading);
         const body = matter(content, FRONTMATTER_OPTIONS).content;
@@ -485,9 +511,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         if (idx === -1) throw new Error(`Heading "${heading}" not found. Headings: ${headings.map(h => h.text).join(', ')}`);
         const lines = body.split('\n');
         const next = headings.slice(idx + 1).find(h => h.level <= headings[idx].level);
-        return lines.slice(headings[idx].line - 1, next ? next.line - 1 : undefined).join('\n');
+        return cap(lines.slice(headings[idx].line - 1, next ? next.line - 1 : undefined).join('\n'));
       }
-      return content;
+      return cap(content);
     }
     case 'obsidian_get_note_outline': {
       const vp = vaultArg();
@@ -610,7 +636,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_get_backlinks': {
       const vp = vaultArg();
-      const target = String(args.file_name).replace(/\.md$/i, '');
+      if (!args.file_path && !args.file_name) throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for obsidian_get_backlinks: pass "file_path" or "file_name"');
+      const target = (args.file_path ? path.basename(String(args.file_path)) : String(args.file_name)).replace(/\.md$/i, '');
       const backlinks = await findBacklinks(vp, target);
       if (backlinks.length === 0) return `No backlinks found for "[[${target}]]".`;
       return `Found ${backlinks.length} backlinks for "[[${target}]]":\n` + backlinks.map(f => `- ${f}`).join('\n');
@@ -738,7 +765,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const range = findSectionRange(fileContent, heading);
       await writeEdit(vp, rel, filePath, read, insertAtHeading(fileContent, heading, content, position, range), String(args.file_path));
       if (isMarkdown(rel)) ctx.reindex(vp, rel);
-      return `Inserted content under "${heading}" in ${args.file_path}`;
+      return `Inserted content under "${heading}" in ${args.file_path}${range ? '' : ' (created a new ## section)'}`;
     }
     case 'obsidian_append_daily_log': {
       const vp = vaultArg();
@@ -799,8 +826,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         if (!resolveLink(target)) broken.push({ target, refs });
       }
       if (broken.length === 0) return 'No broken links found.';
-      const lines = broken.map(b => `[[${b.target}]] — in: ${b.refs.join(', ')}`).join('\n');
-      return `Found ${broken.length} broken link(s):\n${lines}`;
+      const lines = broken.slice(0, 200).map(b => `[[${b.target}]] — in: ${b.refs.join(', ')}`).join('\n');
+      const more = broken.length > 200 ? `\n...and ${broken.length - 200} more.` : '';
+      return `Found ${broken.length} broken link(s):\n${lines}${more}`;
     }
     case 'obsidian_get_orphans': {
       const vp = vaultArg();

@@ -22,6 +22,9 @@ Notable parameters:
 - `obsidian_rag_query`: `folder`, `type`, `status`, `after` filter results; each hit is labelled with folder, date, status and type
 - `obsidian_list_notes`: `type` and `status` filter by frontmatter
 - `obsidian_read_note`: `heading` returns one section, `frontmatter_only` returns just the YAML
+- `obsidian_read_note`: `max_chars` (default 100000, `0` = no cap) truncates a full-note or `heading` result with a marker naming the total
+- `obsidian_get_backlinks`: takes `file_path` (like other tools) or `file_name`
+- Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so clients can tell read-only from destructive tools
 - `obsidian_search_notes`: `regex`, `folder`, `limit` (filename and content hits both count toward the limit)
 - `obsidian_get_note_outline`: frontmatter, headings, wikilinks and word count
 - `obsidian_get_related`: outgoing links, backlinks and semantically similar notes

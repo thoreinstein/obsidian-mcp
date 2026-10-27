@@ -726,3 +726,52 @@ describe('daily note read errors', () => {
     expect(await fs.readFile(p, 'utf-8')).toBe('precious');
   });
 });
+
+describe('tool contracts and output caps', () => {
+  it('read_note caps long notes', async () => {
+    await fs.writeFile(path.join(vp, 'big.md'), 'x'.repeat(250000));
+    const out = await runTool('obsidian_read_note', { file_path: 'big.md' }, ctx);
+    expect(out.startsWith('x'.repeat(100000) + '\n…(truncated at 100000 of 250000 characters')).toBe(true);
+    expect(out).toContain('use heading or obsidian_get_note_outline to read part of this note)');
+    expect(out.length).toBeLessThan(100500);
+    const all = await runTool('obsidian_read_note', { file_path: 'big.md', max_chars: 0 }, ctx);
+    expect(all.length).toBe(250000);
+    const small = await runTool('obsidian_read_note', { file_path: 'big.md', max_chars: 10 }, ctx);
+    expect(small).toContain('truncated at 10 of 250000');
+  });
+  it('read_note caps a heading section too', async () => {
+    await fs.writeFile(path.join(vp, 'h.md'), '# Top\n' + 'y'.repeat(250000));
+    const out = await runTool('obsidian_read_note', { file_path: 'h.md', heading: 'Top' }, ctx);
+    expect(out).toContain('(truncated at 100000 of ');
+  });
+  it('get_backlinks accepts file_path', async () => {
+    await fs.writeFile(path.join(vp, 'src.md'), 'see [[a]]');
+    const byName = await runTool('obsidian_get_backlinks', { file_name: 'a' }, ctx);
+    const byPath = await runTool('obsidian_get_backlinks', { file_path: 'a.md' }, ctx);
+    expect(byPath).toBe(byName);
+    expect(byPath).toContain('src.md');
+    await expect(runTool('obsidian_get_backlinks', {}, ctx)).rejects.toThrow(
+      'Invalid arguments for obsidian_get_backlinks: pass "file_path" or "file_name"');
+  });
+  it('insert_at_heading says when it created a section', async () => {
+    await fs.writeFile(path.join(vp, 'n.md'), '# Top\n\n## Have\nx\n');
+    const made = await runTool('obsidian_insert_at_heading', { file_path: 'n.md', heading: 'Missing', content: 'z' }, ctx);
+    expect(made).toBe('Inserted content under "Missing" in n.md (created a new ## section)');
+    const existing = await runTool('obsidian_insert_at_heading', { file_path: 'n.md', heading: 'Have', content: 'z' }, ctx);
+    expect(existing).toBe('Inserted content under "Have" in n.md');
+  });
+  it('get_broken_links caps at 200 targets', async () => {
+    const body = Array.from({ length: 205 }, (_, i) => `[[nope${i}]]`).join('\n');
+    await fs.writeFile(path.join(vp, 'many.md'), body);
+    const out = await runTool('obsidian_get_broken_links', {}, ctx);
+    expect(out.split('\n').filter(l => l.startsWith('[[nope')).length).toBe(200);
+    expect(out).toContain('...and 5 more.');
+  });
+  it('every tool has annotations', () => {
+    for (const t of TOOL_DEFINITIONS) {
+      expect(typeof (t as any).annotations?.readOnlyHint, t.name).toBe('boolean');
+    }
+    const destructive = TOOL_DEFINITIONS.filter(t => (t as any).annotations.destructiveHint === true).map(t => t.name).sort();
+    expect(destructive).toEqual(['obsidian_move_note', 'obsidian_replace_in_note', 'obsidian_replace_section', 'obsidian_update_frontmatter']);
+  });
+});

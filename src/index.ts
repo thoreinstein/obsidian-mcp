@@ -183,10 +183,17 @@ const ctx: ToolContext = {
       guide = null;
     }
   }
+  const packageVersion = (): string => {
+    try {
+      return require(path.join(__dirname, '..', 'package.json')).version as string;
+    } catch {
+      return '0.0.0';
+    }
+  };
   const server = new Server(
     {
-      name: 'obsidian-rag',
-      version: '1.0.0',
+      name: 'obsidian-mcp',
+      version: packageVersion(),
     },
     {
       capabilities: {
