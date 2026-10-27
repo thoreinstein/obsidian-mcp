@@ -4,6 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
+import { grepVault } from './regex-worker.js';
 import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, splitCode, validateFrontmatter, resolveVaultPath, FRONTMATTER_OPTIONS } from './utils.js';
 
 export interface ToolContext {
@@ -528,6 +529,11 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const folder = args.folder ? String(args.folder) : undefined;
       if (folder) await resolveVaultPath(vp, folder);
       const files = (await glob(listNotesPattern(folder), { cwd: vp })).sort();
+      if (isTrue(args.regex)) {
+        const r = await grepVault(vp, files, String(args.query), re.flags, limit);
+        if (r.extra) r.lines.push(`…truncated: ${r.extra} more matching lines in ${r.extraFiles} files`);
+        return r.lines.join('\n');
+      }
       const out: string[] = [];
       let shown = 0, extra = 0;
       const extraFiles = new Set<string>();
