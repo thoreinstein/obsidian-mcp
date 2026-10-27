@@ -122,7 +122,9 @@ export class VaultIndexer {
   /** The only code that writes the hash file. */
   private async writeHashes(hashes: Record<string, string>) {
     await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(HASH_PATH, JSON.stringify(hashes));
+    const tmp = `${HASH_PATH}.tmp-${process.pid}`;
+    await fs.writeFile(tmp, JSON.stringify(hashes));
+    await fs.rename(tmp, HASH_PATH);
   }
 
   private async readHashes(): Promise<Record<string, string>> {
@@ -142,7 +144,9 @@ export class VaultIndexer {
     } catch { /* missing or unreadable: adopt */ }
     if (!recorded) {
       await fs.mkdir(DATA_DIR, { recursive: true });
-      await fs.writeFile(META_PATH, JSON.stringify({ vault: requested }));
+      const tmp = `${META_PATH}.tmp-${process.pid}`;
+      await fs.writeFile(tmp, JSON.stringify({ vault: requested }));
+      await fs.rename(tmp, META_PATH);
       return;
     }
     if (recorded !== requested) {

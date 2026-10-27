@@ -172,3 +172,14 @@ describe('delete crash safety', () => {
     expect(hits.map((h: any) => h.path)).not.toContain('b.md');
   }, 120_000);
 });
+
+describe('atomic writes', () => {
+  it('writeHashes leaves no partial file', async () => {
+    await indexer.indexVault(vaultA, true);
+    const names = await fs.readdir(dataDir);
+    expect(names.filter(n => n.includes('.tmp-'))).toEqual([]);
+    const hashes = JSON.parse(await fs.readFile(hashFile, 'utf-8'));
+    const notes = (await fs.readdir(vaultA)).filter(n => n.endsWith('.md')).sort();
+    expect(Object.keys(hashes).sort()).toEqual(notes);
+  }, 120_000);
+});
