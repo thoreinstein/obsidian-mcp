@@ -529,6 +529,18 @@ describe('obsidian_move_note link updates', () => {
     await runTool('obsidian_move_note', { source_path: 'sub/b.md', dest_path: 'c.md' }, ctx);
     expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('see [[b]], [[c#H|alias]] and ![[B]]');
   });
+  it('rewrites bare links the resolver attributes to the moved note when the name is shared', async () => {
+    await fs.mkdir(path.join(vp, 'a'));
+    await fs.mkdir(path.join(vp, 'b'));
+    await fs.writeFile(path.join(vp, 'a', 'x.md'), 'ax');
+    await fs.writeFile(path.join(vp, 'b', 'x.md'), 'bx');
+    await fs.writeFile(path.join(vp, 'b', 'note.md'), 'see [[x]]');
+    await fs.writeFile(path.join(vp, 'a', 'note.md'), 'see [[x]]');
+    const out = await runTool('obsidian_move_note', { source_path: 'b/x.md', dest_path: 'c/x.md' }, ctx);
+    expect(await fs.readFile(path.join(vp, 'b', 'note.md'), 'utf-8')).toBe('see [[c/x]]');
+    expect(await fs.readFile(path.join(vp, 'a', 'note.md'), 'utf-8')).toBe('see [[x]]');
+    expect(out).toContain('updated links in 1 note');
+  });
   it('skips read-only notes and says so', async () => {
     await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ readonly: ['engram/'], rules: [] }));
     await fs.mkdir(path.join(vp, 'engram'));

@@ -695,7 +695,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       // fs.rename replaces an existing file. Same inode means a case-only rename on a case-insensitive filesystem.
       const destStat = await fs.stat(dest).catch(() => null);
       if (destStat && destStat.ino !== (await fs.stat(source)).ino) throw new Error(`Destination already exists: ${args.dest_path}`);
-      const allFiles = await glob('**/*.md', { cwd: vp });
+      const allFiles = await glob('**/*', { cwd: vp, nodir: true });
+      const resolveLink = buildLinkResolver(allFiles);
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.rename(source, dest);
       if (isMarkdown(destRel)) ctx.reindex(vp, destRel, isMarkdown(sourceRel) ? sourceRel : undefined);
@@ -705,8 +706,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const noExt = (abs: string) => vaultRel(vp, abs).replace(/\.md$/i, '');
       const from = { name: path.basename(source, '.md'), path: noExt(source) };
       const to = { name: path.basename(dest, '.md'), path: noExt(dest) };
-      // A bare [[name]] only points at this note when no other note shares the name.
-      const unique = allFiles.filter(f => path.basename(f, '.md').toLowerCase() === from.name.toLowerCase()).length === 1;
+      // A bare [[name]] in a note points at this note when the resolver says so (it may share its name with others).
+      // Rewrite it to the bare new name when that is unique after the move, else to the path so it stays unambiguous.
+      const newNameUnique = allFiles.filter(f => f !== sourceRel && path.basename(f, '.md').toLowerCase() === to.name.toLowerCase()).length === 0;
+      const bareTo = newNameUnique ? to : { name: to.path, path: to.path };
       const updated: string[] = [], skipped: string[] = [], stale: string[] = [], refused: string[] = [], unreadable: string[] = [];
       const scanFiles = await glob('**/*.md', { cwd: vp });
       const contents = await readNotes(vp, scanFiles);
@@ -714,7 +717,8 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         const abs = path.join(vp, f);
         const content = contents[i];
         if (content === null) continue;
-        const next = rewriteWikilinks(content, from, to, unique);
+        const rewriteBare = resolveLink(from.name, f === destRel ? sourceRel : f) === sourceRel;
+        const next = rewriteWikilinks(content, from, bareTo, rewriteBare);
         if (next === content) continue;
         const rel = vaultRel(vp, abs);
         let target: string;
