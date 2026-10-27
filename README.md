@@ -103,7 +103,7 @@ Override the directory with `OBSIDIAN_MCP_DATA_DIR`, the config file with `OBSID
 
 The embedding model defaults to `Xenova/all-MiniLM-L6-v2`; set `OBSIDIAN_RAG_MODEL` to use another. Non-default models get their own index (`lancedb-<model>/`, `file-hashes-<model>.json`, with `/` in the model name replaced by `__`), so switching models never mixes embeddings. Reindex after switching.
 
-Embedding batches hold at most `OBSIDIAN_RAG_EMBED_BATCH_SIZE` chunks (default 48) and `OBSIDIAN_RAG_EMBED_BATCH_CHARS` characters (default 12000); the character cap bounds peak memory on long chunks.
+Embedding batches hold at most `OBSIDIAN_RAG_EMBED_BATCH_SIZE` chunks (default 48) and `OBSIDIAN_RAG_EMBED_BATCH_CHARS` characters (default 6000); the character cap bounds peak memory on long chunks.
 
 The index rebuilds incrementally from scratch on first use, so migrating from the old plugin locations needs no manual step.
 

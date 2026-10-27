@@ -260,8 +260,8 @@ export class VaultIndexer {
 
     const batchSizeRaw = Number(process.env.OBSIDIAN_RAG_EMBED_BATCH_SIZE ?? '48');
     const batchSize = Number.isFinite(batchSizeRaw) && batchSizeRaw > 0 ? Math.min(Math.floor(batchSizeRaw), 256) : 48;
-    const batchCharsRaw = Number(process.env.OBSIDIAN_RAG_EMBED_BATCH_CHARS ?? '12000');
-    const batchChars = Number.isFinite(batchCharsRaw) && batchCharsRaw > 0 ? Math.floor(batchCharsRaw) : 12000;
+    const batchCharsRaw = Number(process.env.OBSIDIAN_RAG_EMBED_BATCH_CHARS ?? '6000');
+    const batchChars = Number.isFinite(batchCharsRaw) && batchCharsRaw > 0 ? Math.floor(batchCharsRaw) : 6000;
     const useProgressBar = process.stderr.isTTY === true;
     const progressInterval = 100;
 
