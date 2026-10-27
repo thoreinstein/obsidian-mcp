@@ -4,8 +4,9 @@ import matter from 'gray-matter';
 import yaml from 'js-yaml';
 
 /**
- * gray-matter options for writing frontmatter back out. The default YAML schema turns `2026-10-20` into a Date
- * and writes it back as `2026-10-20T00:00:00.000Z`; the core schema has no timestamp type, so dates stay as written.
+ * gray-matter options for every parse and stringify. The default YAML schema turns `2026-10-20` into a Date, so the
+ * core schema (no timestamp type) keeps dates as written. Passing any options object also disables gray-matter's
+ * global content cache.
  */
 export const FRONTMATTER_OPTIONS = {
   engines: {
