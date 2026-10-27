@@ -76,20 +76,30 @@ export function splitCode(content: string): Array<{ code: boolean; text: string 
 
 /**
  * Build a wikilink resolver over vault-relative file paths. Notes are linked without `.md` (an explicit `.md` is
- * accepted); other files (`.base`, images, PDFs) with their extension. A bare name matches the first file with that
- * name; a path-style target (`folder/note`) matches that exact path. Both are case-insensitive.
+ * accepted); other files (`.base`, images, PDFs) with their extension. A path-style target (`folder/note`) matches that
+ * exact path. A bare name with several candidates picks the one in the linking note's folder (when `sourcePath` is
+ * given), else the fewest path segments, else the alphabetically first path. All matching is case-insensitive.
  */
-export function buildLinkResolver(allFiles: string[]): (target: string) => string | undefined {
+export function buildLinkResolver(allFiles: string[]): (target: string, sourcePath?: string) => string | undefined {
   const linkName = (f: string) => f.replace(/\.md$/i, '').toLowerCase();
-  const byName = new Map<string, string>();
+  const byName = new Map<string, string[]>();
   for (const f of allFiles) {
     const key = path.basename(linkName(f));
-    if (!byName.has(key)) byName.set(key, f);
+    const list = byName.get(key);
+    if (list) list.push(f); else byName.set(key, [f]);
   }
-  const byPath = new Map(allFiles.map(f => [linkName(f), f]));
-  return (t: string) => {
+  const byPath = new Map<string, string>();
+  for (const f of [...allFiles].sort()) if (!byPath.has(linkName(f))) byPath.set(linkName(f), f);
+  const depth = (f: string) => f.split('/').length;
+  return (t: string, sourcePath?: string) => {
     const key = linkName(t);
-    return t.includes('/') ? byPath.get(key) : byName.get(key);
+    if (t.includes('/')) return byPath.get(key);
+    const candidates = byName.get(key);
+    if (!candidates) return undefined;
+    const dir = sourcePath === undefined ? undefined : path.posix.dirname(sourcePath);
+    const local = dir === undefined ? [] : candidates.filter(f => path.posix.dirname(f) === dir);
+    const pool = local.length ? local : candidates;
+    return pool.reduce((best, f) => (depth(f) - depth(best) || (f < best ? -1 : 1)) < 0 ? f : best);
   };
 }
 
@@ -454,7 +464,7 @@ export function validateFrontmatter(filePath: string, content: string, schema: V
   return errors;
 }
 
-const isInside = (root: string, p: string) => p === root || p.startsWith(root + path.sep);
+export const isInside = (root: string, p: string) => p === root || p.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
 
 /**
  * Resolve relPath against vaultRoot and refuse anything that lands outside it,

@@ -22,6 +22,8 @@ import {
   buildInstructions,
   rewriteWikilinks,
   extractWikilinks,
+  buildLinkResolver,
+  isInside,
 } from './utils.js';
 
 describe('listNotesPattern', () => {
@@ -340,5 +342,35 @@ describe('parseCliArgs', () => {
   });
   it('ignores stray non-flag tokens', () => {
     expect(parseCliArgs(['stray', '--a', 'v', 'extra'])).toEqual({ a: 'v' });
+  });
+});
+
+describe('buildLinkResolver duplicates', () => {
+  it('bare links prefer the note in the same folder', () => {
+    const r = buildLinkResolver(['a/x.md', 'b/x.md']);
+    expect(r('x', 'b/note.md')).toBe('b/x.md');
+    expect(r('x', 'a/note.md')).toBe('a/x.md');
+  });
+
+  it('bare links prefer the shallowest path, then alphabetical', () => {
+    expect(buildLinkResolver(['deep/er/x.md', 'x.md'])('x', 'z/n.md')).toBe('x.md');
+    expect(buildLinkResolver(['m/x.md', 'k/x.md'])('x', 'z/n.md')).toBe('k/x.md');
+    expect(buildLinkResolver(['m/x.md', 'k/x.md'])('x')).toBe('k/x.md');
+  });
+
+  it('resolution does not depend on input order', () => {
+    const files = ['m/x.md', 'k/x.md', 'x.md', 'deep/er/x.md', 'q/y.md', 'p/y.md'];
+    const expected = ['x.md', 'p/y.md'];
+    for (let i = 0; i < 20; i++) {
+      const shuffled = [...files].sort(() => Math.random() - 0.5);
+      const r = buildLinkResolver(shuffled);
+      expect([r('x', 'z/n.md'), r('y', 'z/n.md')]).toEqual(expected);
+    }
+  });
+});
+
+describe('isInside', () => {
+  it('accepts paths under a filesystem root', () => {
+    expect(isInside(path.parse(process.cwd()).root, process.cwd())).toBe(true);
   });
 });

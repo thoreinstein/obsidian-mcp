@@ -46,6 +46,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
         subfolder: { type: 'string', description: 'Optional subfolder to list' },
         type: { type: 'string', description: 'Only notes whose frontmatter type equals this' },
         status: { type: 'string', description: 'Only notes whose frontmatter status equals this' },
+        offset: { type: 'number', description: 'Skip this many notes (default 0); 100 are returned per call' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
     },
@@ -490,7 +491,11 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         }
         files = kept;
       }
-      return JSON.stringify(files.slice(0, 100), null, 2) + (files.length > 100 ? `\n...and ${files.length - 100} more.` : '');
+      const offset = args.offset === undefined || args.offset === null ? 0 : Math.floor(Number(args.offset));
+      if (offset < 0) throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for obsidian_list_notes: "offset" must be non-negative');
+      files.sort();
+      const after = files.length - offset - 100;
+      return JSON.stringify(files.slice(offset, offset + 100), null, 2) + (after > 0 ? `\n...and ${after} more.` : '');
     }
     case 'obsidian_read_note': {
       const vp = vaultArg();
@@ -650,14 +655,16 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         backlinks = files.filter((f, i) => {
           const content = contents[i];
           return f !== rel && content !== null
-            && extractWikilinks(content).some(l => resolveLink(stripHeadingFromLink(l)) === rel);
+            && extractWikilinks(content).some(l => resolveLink(stripHeadingFromLink(l), f) === rel);
         });
       } else {
         target = String(args.file_name).replace(/\.md$/i, '');
         backlinks = await findBacklinks(vp, target);
       }
+      backlinks.sort();
       if (backlinks.length === 0) return `No backlinks found for "[[${target}]]".`;
-      return `Found ${backlinks.length} backlinks for "[[${target}]]":\n` + backlinks.map(f => `- ${f}`).join('\n');
+      const more = backlinks.length > 200 ? `\n...and ${backlinks.length - 200} more.` : '';
+      return `Found ${backlinks.length} backlinks for "[[${target}]]":\n` + backlinks.slice(0, 200).map(f => `- ${f}`).join('\n') + more;
     }
     case 'obsidian_get_related': {
       const vp = vaultArg();
@@ -666,7 +673,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const content = await fs.readFile(await resolveVaultPath(vp, filePath), 'utf-8');
       const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
       const targets = [...new Set(extractWikilinks(content).map(stripHeadingFromLink).filter(Boolean))];
-      const out = targets.map(t => `- [[${t}]] → ${resolveLink(t) ?? '(unresolved)'}`);
+      const out = targets.map(t => `- [[${t}]] → ${resolveLink(t, filePath) ?? '(unresolved)'}`);
       const backlinks = await findBacklinks(vp, path.basename(filePath, '.md'));
       const similar = await ctx.indexer.similarNotes(filePath, limit);
       const list = (lines: string[]) => (lines.length ? lines.join('\n') : '(none)');
@@ -865,7 +872,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       for (const [i, f] of scanned.entries()) {
         const content = contents[i] ?? '';
         for (const link of extractWikilinks(content)) {
-          const target = resolveLink(stripHeadingFromLink(link));
+          const target = resolveLink(stripHeadingFromLink(link), f);
           if (target && target !== f) linked.add(target);
         }
       }

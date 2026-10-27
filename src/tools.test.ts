@@ -848,3 +848,33 @@ describe('tool contracts and output caps', () => {
     expect(destructive).toEqual(['obsidian_move_note', 'obsidian_replace_in_note', 'obsidian_replace_section', 'obsidian_update_frontmatter']);
   });
 });
+
+describe('list_notes paging and get_backlinks cap', () => {
+  it('list_notes pages with offset', async () => {
+    await fs.mkdir(path.join(vp, 'many'));
+    for (let i = 0; i < 150; i++) await fs.writeFile(path.join(vp, 'many', `n${String(i).padStart(3, '0')}.md`), 'x');
+    const first = await runTool('obsidian_list_notes', { subfolder: 'many', offset: 0 }, ctx);
+    const [json1, trailer1] = first.split('\n...');
+    const page1: string[] = JSON.parse(json1);
+    expect(page1).toHaveLength(100);
+    expect([...page1].sort()).toEqual(page1);
+    expect('...' + trailer1).toBe('...and 50 more.');
+    const second = await runTool('obsidian_list_notes', { subfolder: 'many', offset: 100 }, ctx);
+    expect(second).not.toContain('more.');
+    const page2: string[] = JSON.parse(second);
+    expect(page2).toHaveLength(50);
+    expect(new Set([...page1, ...page2]).size).toBe(150);
+    await expect(runTool('obsidian_list_notes', { offset: -1 }, ctx)).rejects.toThrow('offset');
+  });
+
+  it('get_backlinks caps at 200', async () => {
+    await fs.writeFile(path.join(vp, 'target.md'), 't');
+    for (let i = 0; i < 205; i++) await fs.writeFile(path.join(vp, `l${String(i).padStart(3, '0')}.md`), 'see [[target]]');
+    for (const a of [{ file_path: 'target.md' }, { file_name: 'target' }]) {
+      const out = await runTool('obsidian_get_backlinks', a, ctx);
+      expect(out).toContain('Found 205 backlinks');
+      expect(out.match(/^- /gm)).toHaveLength(200);
+      expect(out).toContain('...and 5 more.');
+    }
+  });
+});
