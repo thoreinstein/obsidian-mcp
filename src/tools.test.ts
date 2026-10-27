@@ -469,6 +469,28 @@ describe('obsidian_append_daily_log creation', () => {
   });
 });
 
+describe('obsidian_get_backlinks file_path', () => {
+  it('matches the exact note, not every note with that name', async () => {
+    await fs.mkdir(path.join(vp, 'Kitchen'));
+    await fs.mkdir(path.join(vp, 'Health'));
+    await fs.writeFile(path.join(vp, 'Kitchen', 'CONVENTIONS.md'), 'kitchen rules');
+    await fs.writeFile(path.join(vp, 'Health', 'CONVENTIONS.md'), 'health rules');
+    await fs.writeFile(path.join(vp, 'pathlink.md'), 'see [[Kitchen/CONVENTIONS]]');
+    await fs.writeFile(path.join(vp, 'healthlink.md'), 'see [[Health/CONVENTIONS#Top|rules]]');
+    await fs.writeFile(path.join(vp, 'barelink.md'), 'see [[CONVENTIONS]]');
+    const { glob } = await import('glob');
+    const { buildLinkResolver } = await import('./utils.js');
+    const bareTarget = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }))('CONVENTIONS');
+
+    const out = await runTool('obsidian_get_backlinks', { file_path: 'Kitchen/CONVENTIONS.md' }, ctx);
+    expect(out).toContain('Found');
+    expect(out).toContain('"[[Kitchen/CONVENTIONS]]"');
+    expect(out).toContain('- pathlink.md');
+    expect(out).not.toContain('healthlink.md');
+    expect(out.includes('- barelink.md')).toBe(bareTarget === 'Kitchen/CONVENTIONS.md');
+  });
+});
+
 describe('obsidian_get_broken_links path-style links', () => {
   it('resolves [[folder/note]] and still flags missing ones', async () => {
     await fs.writeFile(path.join(vp, 'a.md'), 'see [[Sub/B]], [[sub/b#H|alias]] and [[nope/b]]');

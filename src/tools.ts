@@ -167,11 +167,11 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
   {
     name: 'obsidian_get_backlinks',
     annotations: { readOnlyHint: true, openWorldHint: false },
-    description: 'Find all notes that link to a specific note.',
+    description: 'Find all notes that link to a specific note. file_path: exact note (resolves path-style and bare links); file_name: bare name match.',
     inputSchema: {
       type: 'object',
       properties: {
-        file_path: { type: 'string', description: 'Relative path to the note to find backlinks for' },
+        file_path: { type: 'string', description: 'Relative path to the exact note to find backlinks for' },
         file_name: { type: 'string', description: 'Name of the note to find backlinks for (without extension); alternative to file_path' },
         vault_path: { type: 'string', description: 'Optional vault path override' },
       },
@@ -637,8 +637,24 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_get_backlinks': {
       const vp = vaultArg();
       if (!args.file_path && !args.file_name) throw new McpError(ErrorCode.InvalidParams, 'Invalid arguments for obsidian_get_backlinks: pass "file_path" or "file_name"');
-      const target = (args.file_path ? path.basename(String(args.file_path)) : String(args.file_name)).replace(/\.md$/i, '');
-      const backlinks = await findBacklinks(vp, target);
+      let target: string;
+      let backlinks: string[];
+      if (args.file_path) {
+        // Exact note: keep a note when any of its links resolves to this path (path-style or bare).
+        const rel = path.relative(vp, await resolveVaultPath(vp, String(args.file_path))).split(path.sep).join('/');
+        target = rel.replace(/\.md$/i, '');
+        const files = await glob('**/*.md', { cwd: vp });
+        const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
+        const contents = await readNotes(vp, files);
+        backlinks = files.filter((f, i) => {
+          const content = contents[i];
+          return f !== rel && content !== null
+            && extractWikilinks(content).some(l => resolveLink(stripHeadingFromLink(l)) === rel);
+        });
+      } else {
+        target = String(args.file_name).replace(/\.md$/i, '');
+        backlinks = await findBacklinks(vp, target);
+      }
       if (backlinks.length === 0) return `No backlinks found for "[[${target}]]".`;
       return `Found ${backlinks.length} backlinks for "[[${target}]]":\n` + backlinks.map(f => `- ${f}`).join('\n');
     }
