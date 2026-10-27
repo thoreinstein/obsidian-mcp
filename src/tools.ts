@@ -4,6 +4,7 @@ import { glob } from 'glob';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { VaultIndexer } from './rag/store.js';
 import matter from 'gray-matter';
+import { readForEdit, writeAtomic } from './note-write.js';
 import { grepVault } from './regex-worker.js';
 import { noteOutline, scanHeadings, extractWikilinks, findSectionRange, replaceSection, insertAtHeading, listNotesPattern, compileSearch, findMatches, replaceInNote, applyFrontmatterUpdate, stripHeadingFromLink, formatResultMeta, resolveDailyNotePath, loadVaultSchema, buildLinkResolver, rewriteWikilinks, splitCode, validateFrontmatter, resolveVaultPath, FRONTMATTER_OPTIONS } from './utils.js';
 
@@ -342,12 +343,12 @@ async function assertValidFrontmatter(vp: string, relPath: string, content: stri
  * Write an edit to an existing note. Validates frontmatter only when the edit changed it, so body edits still work
  * on older notes whose frontmatter predates the schema.
  */
-async function writeEdit(vp: string, relPath: string, filePath: string, before: string, after: string): Promise<void> {
+async function writeEdit(vp: string, relPath: string, filePath: string, before: { content: string; mtimeMs: number }, after: string, displayPath: string): Promise<void> {
   const fm = (text: string) => {
     try { return JSON.stringify(matter(text, FRONTMATTER_OPTIONS).data); } catch { return 'unparseable'; }
   };
-  if (fm(before) !== fm(after)) await assertValidFrontmatter(vp, relPath, after);
-  await fs.writeFile(filePath, after, 'utf-8');
+  if (fm(before.content) !== fm(after)) await assertValidFrontmatter(vp, relPath, after);
+  await writeAtomic(filePath, after, { expectedMtimeMs: before.mtimeMs, displayPath });
 }
 
 /** Normalized, forward-slash vault-relative path of an absolute path inside the vault. */
@@ -512,14 +513,14 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       const content = String(args.content || '');
-      let fileContent: string;
+      let read: { content: string; mtimeMs: number };
       try {
-        fileContent = await fs.readFile(filePath, 'utf-8');
+        read = await readForEdit(filePath);
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`Note not found: ${args.file_path}`);
         throw e;
       }
-      await writeEdit(vp, rel, filePath, fileContent, fileContent + '\n' + content);
+      await writeEdit(vp, rel, filePath, read, read.content + '\n' + content, String(args.file_path));
       if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Appended to note: ${args.file_path}`;
     }
@@ -661,7 +662,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         if (next === content) continue;
         const rel = vaultRel(vp, abs);
         if (await isReadonlyPath(vp, abs, readonly)) { skipped.push(rel); continue; }
-        await fs.writeFile(abs, next, 'utf-8');
+        // Re-read just before writing; skip a note that changed since the scan rather than clobber it.
+        const fresh = await readForEdit(abs).catch(() => null);
+        if (!fresh || fresh.content !== content) continue;
+        await writeAtomic(abs, next, { expectedMtimeMs: fresh.mtimeMs, displayPath: rel });
         ctx.reindex(vp, rel);
         updated.push(rel);
       }
@@ -674,15 +678,15 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const vp = vaultArg();
       const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
       if (!isMarkdown(rel)) throw new Error(`Not a markdown note: ${args.file_path}`);
-      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const read = await readForEdit(filePath);
       // CLI passes `updates` as a JSON string; MCP passes an object.
       const rawUpdates = typeof args.updates === 'string' ? JSON.parse(args.updates) : args.updates;
       const updateArg = (rawUpdates && typeof rawUpdates === 'object')
         ? { updates: rawUpdates as Record<string, unknown> }
         : { key: String(args.key), value: String(args.value) };
-      const updated = applyFrontmatterUpdate(fileContent, updateArg);
+      const updated = applyFrontmatterUpdate(read.content, updateArg);
       await assertValidFrontmatter(vp, rel, updated);
-      await fs.writeFile(filePath, updated, 'utf-8');
+      await writeAtomic(filePath, updated, { expectedMtimeMs: read.mtimeMs, displayPath: String(args.file_path) });
       if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Updated frontmatter in ${args.file_path}`;
     }
@@ -692,10 +696,11 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       if (!isMarkdown(rel)) throw new Error(`Not a markdown note: ${args.file_path}`);
       const heading = String(args.heading);
       const content = String(args.content);
-      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const read = await readForEdit(filePath);
+      const fileContent = read.content;
       const range = findSectionRange(fileContent, heading);
       if (!range) throw new McpError(ErrorCode.InvalidParams, `Heading "${heading}" not found in ${args.file_path}`);
-      await writeEdit(vp, rel, filePath, fileContent, replaceSection(fileContent, range, content));
+      await writeEdit(vp, rel, filePath, read, replaceSection(fileContent, range, content), String(args.file_path));
       if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Replaced section "${heading}" in ${args.file_path}`;
     }
@@ -706,9 +711,10 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const heading = String(args.heading);
       const content = String(args.content);
       const position = (args.position || 'end') as 'beginning' | 'end';
-      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const read = await readForEdit(filePath);
+      const fileContent = read.content;
       const range = findSectionRange(fileContent, heading);
-      await writeEdit(vp, rel, filePath, fileContent, insertAtHeading(fileContent, heading, content, position, range));
+      await writeEdit(vp, rel, filePath, read, insertAtHeading(fileContent, heading, content, position, range), String(args.file_path));
       if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Inserted content under "${heading}" in ${args.file_path}`;
     }
@@ -719,8 +725,9 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const filePath = await resolveVaultPath(vp, await resolveDailyNotePath(vp, new Date()));
       const title = path.basename(filePath, '.md');
       let fileContent = '';
+      let mtimeMs: number | undefined;
       try {
-        fileContent = await fs.readFile(filePath, 'utf-8');
+        ({ content: fileContent, mtimeMs } = await readForEdit(filePath));
       } catch {
         await fs.mkdir(path.dirname(filePath), { recursive: true });
         fileContent = `# ${title}\n\n`;
@@ -733,16 +740,16 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       } else {
         fileContent += `\n\n## ${heading}${entry}`;
       }
-      await fs.writeFile(filePath, fileContent, 'utf-8');
+      await writeAtomic(filePath, fileContent, { expectedMtimeMs: mtimeMs, displayPath: path.relative(vp, filePath) });
       ctx.reindex(vp, path.relative(vp, filePath));
       return `Appended to daily note under "${heading}"`;
     }
     case 'obsidian_replace_in_note': {
       const vp = vaultArg();
       const { abs: filePath, rel } = await resolveWritablePath(vp, String(args.file_path));
-      const fileContent = await fs.readFile(filePath, 'utf-8');
-      const updated = replaceInNote(fileContent, String(args.old_text), String(args.new_text ?? ''));
-      await writeEdit(vp, rel, filePath, fileContent, updated);
+      const read = await readForEdit(filePath);
+      const updated = replaceInNote(read.content, String(args.old_text), String(args.new_text ?? ''));
+      await writeEdit(vp, rel, filePath, read, updated, String(args.file_path));
       if (isMarkdown(rel)) ctx.reindex(vp, rel);
       return `Replaced text in ${args.file_path}`;
     }

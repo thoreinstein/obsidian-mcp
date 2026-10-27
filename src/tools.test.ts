@@ -28,6 +28,20 @@ afterEach(async () => {
 });
 
 describe('runTool', () => {
+  it("edit tools still edit and leave no temp files", async () => {
+    await fs.writeFile(path.join(vp, "e.md"), "# T\n## S\nbody\n");
+    await runTool("obsidian_replace_section", { file_path: "e.md", heading: "S", content: "new body" }, ctx);
+    await runTool("obsidian_insert_at_heading", { file_path: "e.md", heading: "S", content: "inserted" }, ctx);
+    await runTool("obsidian_replace_in_note", { file_path: "e.md", old_text: "inserted", new_text: "swapped" }, ctx);
+    await runTool("obsidian_append_note", { file_path: "e.md", content: "appended" }, ctx);
+    await runTool("obsidian_update_frontmatter", { file_path: "e.md", key: "k", value: "v" }, ctx);
+    const text = await fs.readFile(path.join(vp, "e.md"), "utf-8");
+    expect(text).toContain("appended");
+    expect(text).toContain("swapped");
+    expect(text).toContain("new body");
+    expect(text).toMatch(/^---\nk: v\n---/);
+    expect((await fs.readdir(vp)).filter(f => f.includes(".tmp-"))).toEqual([]);
+  });
   it("reads one section by heading", async () => {
     await fs.writeFile(path.join(vp, "a.md"), "---\nk: v\n---\n# T\nintro\n## S\nsec body\n## U\nother\n");
     const out = await runTool("obsidian_read_note", { file_path: "a.md", heading: "S" }, ctx);
