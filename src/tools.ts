@@ -382,7 +382,54 @@ async function resolveWritablePath(vp: string, relPath: string): Promise<{ abs: 
   return { abs, rel };
 }
 
+function validateArgs(name: string, args: Record<string, unknown>): void {
+  const def = TOOL_DEFINITIONS.find((t) => t.name === name);
+  if (!def) return;
+  const bad = (reason: string): never => {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments for ${name}: ${reason}`);
+  };
+  const schema = def.inputSchema as {
+    properties: Record<string, { type: string; enum?: string[] }>;
+    required?: string[];
+  };
+  for (const key of schema.required ?? []) {
+    if (args[key] === undefined || args[key] === null) bad(`missing required "${key}"`);
+  }
+  for (const [key, prop] of Object.entries(schema.properties)) {
+    const v = args[key];
+    if (v === undefined || v === null) continue;
+    let ok: boolean;
+    switch (prop.type) {
+      case 'number':
+        ok = (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)));
+        break;
+      case 'boolean':
+        ok = typeof v === 'boolean' || v === 'true' || v === 'false';
+        break;
+      case 'object':
+        ok = isPlainObject(v) || (typeof v === 'string' && (() => { try { return isPlainObject(JSON.parse(v)); } catch { return false; } })());
+        break;
+      default:
+        ok = typeof v === prop.type;
+    }
+    if (!ok) bad(`"${key}" must be a ${prop.type}`);
+    if (prop.enum && !prop.enum.includes(v as string)) bad(`"${key}" must be one of: ${prop.enum.join(', ')}`);
+  }
+  if (name === 'obsidian_update_frontmatter') {
+    const has = (k: string) => args[k] !== undefined && args[k] !== null;
+    if (!has('updates') && !(has('key') && has('value'))) bad('pass "updates" or both "key" and "value"');
+  }
+}
+
+function isPlainObject(v: unknown): boolean {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+const clampLimit = (raw: unknown, fallback: number): number =>
+  Math.min(Math.max(Math.floor(Number(raw)) || fallback, 1), 100);
+
 export async function runTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
+  validateArgs(name, args);
   const vaultArg = () => ctx.getVaultPath(args.vault_path as string | undefined);
 
   switch (name) {
@@ -477,7 +524,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_search_notes': {
       const vp = vaultArg();
       const re = compileSearch(String(args.query), isTrue(args.regex));
-      const limit = Number(args.limit) || 50;
+      const limit = clampLimit(args.limit, 50);
       const folder = args.folder ? String(args.folder) : undefined;
       if (folder) await resolveVaultPath(vp, folder);
       const files = (await glob(listNotesPattern(folder), { cwd: vp })).sort();
@@ -509,7 +556,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     }
     case 'obsidian_rag_query': {
       const query = String(args.query);
-      const limit = Number(args.limit) || 5;
+      const limit = clampLimit(args.limit, 5);
       const opt = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : String(v));
       // MCP sends max_distance; the CLI flag is --max-distance.
       const rawMax = args.max_distance ?? args['max-distance'];
@@ -540,7 +587,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
     case 'obsidian_get_related': {
       const vp = vaultArg();
       const filePath = String(args.file_path);
-      const limit = Number(args.limit) || 5;
+      const limit = clampLimit(args.limit, 5);
       const content = await fs.readFile(await resolveVaultPath(vp, filePath), 'utf-8');
       const resolveLink = buildLinkResolver(await glob('**/*', { cwd: vp, nodir: true }));
       const targets = [...new Set(extractWikilinks(content).map(stripHeadingFromLink).filter(Boolean))];

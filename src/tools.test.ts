@@ -123,7 +123,9 @@ describe('runTool', () => {
 
   it('rejects a non-positive or non-numeric max_distance', async () => {
     ctx.indexer = { search: vi.fn(async () => []) } as any;
-    for (const bad of ['abc', -1, 0, true])
+    for (const bad of ['abc', true])
+      await expect(runTool('obsidian_rag_query', { query: 'q', max_distance: bad }, ctx)).rejects.toThrow('"max_distance" must be a number');
+    for (const bad of [-1, 0])
       await expect(runTool('obsidian_rag_query', { query: 'q', max_distance: bad }, ctx)).rejects.toThrow('max_distance must be a positive number');
   });
 });
@@ -501,5 +503,35 @@ describe('write path policy', () => {
   it('reindexes the normalized path', async () => {
     await runTool('obsidian_append_note', { file_path: './sub/../a.md', content: 'more' }, ctx);
     expect(reindex).toHaveBeenCalledWith(vp, 'a.md');
+  });
+});
+
+describe('argument validation', () => {
+  it('rejects replace_section without content and leaves the file unchanged', async () => {
+    await expect(runTool('obsidian_replace_section', { file_path: 'a.md', heading: 'S' }, ctx)).rejects.toThrow('missing required "content"');
+    expect(await fs.readFile(path.join(vp, 'a.md'), 'utf-8')).toBe('hello a');
+  });
+  it('rejects update_frontmatter with only file_path', async () => {
+    await expect(runTool('obsidian_update_frontmatter', { file_path: 'a.md' }, ctx)).rejects.toThrow('pass "updates" or both "key" and "value"');
+  });
+  it('rejects an insert_at_heading position outside the enum', async () => {
+    await expect(runTool('obsidian_insert_at_heading', { file_path: 'a.md', heading: 'S', content: 'x', position: 'sideways' }, ctx)).rejects.toThrow('must be one of: beginning, end');
+  });
+  it('rejects move_note without dest_path and keeps the source', async () => {
+    await expect(runTool('obsidian_move_note', { source_path: 'a.md' }, ctx)).rejects.toThrow('missing required "dest_path"');
+    await expect(fs.stat(path.join(vp, 'a.md'))).resolves.toBeTruthy();
+  });
+  it('accepts a CLI string for a number limit', async () => {
+    await expect(runTool('obsidian_search_notes', { query: 'hello', limit: '10' }, ctx)).resolves.toContain('a.md:1');
+  });
+  it('rejects a non-numeric limit', async () => {
+    await expect(runTool('obsidian_search_notes', { query: 'hello', limit: 'abc' }, ctx)).rejects.toThrow('"limit" must be a number');
+  });
+  it('clamps limit to 1..100', async () => {
+    await fs.writeFile(path.join(vp, 'many.md'), Array.from({ length: 150 }, () => 'hello').join('\n'));
+    const low = await runTool('obsidian_search_notes', { query: 'hello', limit: -5 }, ctx);
+    expect(low.split('\n').filter((l) => /^\S+:\d+: /.test(l)).length).toBe(1);
+    const high = await runTool('obsidian_search_notes', { query: 'hello', limit: 1e9 }, ctx);
+    expect(high.split('\n').filter((l) => /^\S+:\d+: /.test(l)).length).toBe(100);
   });
 });
