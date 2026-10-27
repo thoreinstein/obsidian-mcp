@@ -67,6 +67,8 @@ Allowed vaults: the server only operates on vaults it is configured with. Roots 
 
 Relative entries are ignored. The default vault is the first root that exists. A `vault_path` argument on a tool, and `obsidian_set_vault`, must name one of these roots (matched by real path, so symlinks and trailing slashes are fine); anything else is rejected with `Vault not allowed`. `obsidian_set_vault` only switches the default for the current session and never writes the config file.
 
+The RAG index belongs to one vault: the first vault that indexes it. Indexing another vault fails with `Index belongs to vault ...`. To index a second vault, point `OBSIDIAN_MCP_DATA_DIR` at a separate directory.
+
 ## Vault files
 
 The server reads these optional files from the vault; nothing vault-specific is hard-coded.
@@ -95,6 +97,7 @@ Canonical, shared by all clients:
 - Config: `~/.config/obsidian-mcp/config.json`
 - LanceDB index: `~/.config/obsidian-mcp/lancedb/`
 - File-hash cache: `~/.config/obsidian-mcp/file-hashes.json`
+- Index owner: `~/.config/obsidian-mcp/index-meta.json` (the vault the index belongs to)
 
 Override the directory with `OBSIDIAN_MCP_DATA_DIR`, the config file with `OBSIDIAN_MCP_CONFIG`.
 
