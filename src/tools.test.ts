@@ -145,6 +145,22 @@ describe("obsidian_search_notes", () => {
   });
 });
 
+describe("obsidian_search_notes regex/plain parity", () => {
+  it("produces identical output for regex and plain modes", async () => {
+    await fs.writeFile(path.join(vp, "a.md"), "one\n  Hello a  \nhello again");
+    await fs.writeFile(path.join(vp, "sub", "hello.md"), "x\nhello b\nHELLO c");
+    for (const limit of [2, 3, 50]) {
+      const plain = await runTool("obsidian_search_notes", { query: "hello", regex: false, limit }, ctx);
+      const re = await runTool("obsidian_search_notes", { query: "hello", regex: true, limit }, ctx);
+      expect(re).toBe(plain);
+    }
+    const capped = await runTool("obsidian_search_notes", { query: "hello", regex: true, limit: 2 }, ctx);
+    expect(capped).toContain("…truncated:");
+    const full = await runTool("obsidian_search_notes", { query: "hello", regex: true }, ctx);
+    expect(full).toContain("sub/hello.md (filename match)");
+  });
+});
+
 describe("obsidian_search_notes filename matches", () => {
   it("counts filename hits toward limit and matches basename only", async () => {
     await fs.mkdir(path.join(vp, "foo"));
