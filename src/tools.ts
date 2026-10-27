@@ -376,10 +376,17 @@ async function resolveWritablePath(vp: string, relPath: string): Promise<{ abs: 
   const abs = await resolveVaultPath(vp, relPath);
   const rel = vaultRel(vp, abs);
   if (await isReadonlyPath(vp, abs, (await loadVaultSchema(vp))?.readonly ?? [])) throw new Error(`Path is read-only: ${relPath}`);
-  if (rel.split('/').some(seg => seg.startsWith('.'))) throw new Error(`Hidden paths are not writable: ${relPath}`);
-  if (!WRITABLE_EXTENSIONS.includes(path.extname(rel).toLowerCase())) {
-    throw new Error(`Not a writable note type: ${relPath} (allowed: ${WRITABLE_EXTENSIONS.join(', ')})`);
-  }
+  const checkName = (r: string) => {
+    if (r.split('/').some(seg => seg.startsWith('.'))) throw new Error(`Hidden paths are not writable: ${relPath}`);
+    if (!WRITABLE_EXTENSIONS.includes(path.extname(r).toLowerCase())) {
+      throw new Error(`Not a writable note type: ${relPath} (allowed: ${WRITABLE_EXTENSIONS.join(', ')})`);
+    }
+  };
+  checkName(rel);
+  // An in-vault symlink must not smuggle a write into a hidden or non-note target.
+  let realAbs: string | undefined;
+  try { realAbs = await fs.realpath(abs); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+  if (realAbs) checkName(vaultRel(await fs.realpath(vp), realAbs));
   return { abs, rel };
 }
 

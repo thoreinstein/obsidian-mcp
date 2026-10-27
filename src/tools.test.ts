@@ -511,6 +511,15 @@ describe('write path policy', () => {
     await expect(runTool('obsidian_append_note', { file_path: '.obsidian/app.json', content: 'x' }, ctx)).rejects.toThrow(/not writable/);
     expect(await fs.readFile(path.join(vp, '.obsidian', 'app.json'), 'utf-8')).toBe('{}');
   });
+  it('append_note refuses a symlink into a hidden non-note file', async () => {
+    const target = path.join(vp, '.obsidian', 'plugins', 'evil', 'main.js');
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, 'x');
+    await fs.mkdir(path.join(vp, 'notes'));
+    await fs.symlink(target, path.join(vp, 'notes', 'x.md'));
+    await expect(runTool('obsidian_append_note', { file_path: 'notes/x.md', content: 'pwn' }, ctx)).rejects.toThrow(/not writable|Not a writable note type/);
+    expect(await fs.readFile(target, 'utf-8')).toBe('x');
+  });
   it('applies schema rules to ./ and ../ spellings', async () => {
     await fs.writeFile(path.join(vp, '.obsidian-mcp-schema.json'), JSON.stringify({ rules: [{ prefix: 'Engineering/', required: ['type'] }] }));
     for (const p of ['./Engineering/x.md', 'sub/../Engineering/y.md'])
