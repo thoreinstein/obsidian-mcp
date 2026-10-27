@@ -146,6 +146,7 @@ export const TOOL_DEFINITIONS: Array<{ name: string; description: string; inputS
         type: { type: 'string', description: 'Only notes whose frontmatter type equals this' },
         status: { type: 'string', description: 'Only notes whose frontmatter status equals this' },
         after: { type: 'string', description: 'Only notes dated on or after this day (YYYY-MM-DD)' },
+        max_distance: { type: 'number', description: 'Drop semantic hits whose vector distance exceeds this (lower is closer); keyword hits are kept. Unset keeps all.' },
       },
       required: ['query'],
     },
@@ -497,8 +498,16 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       const query = String(args.query);
       const limit = Number(args.limit) || 5;
       const opt = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : String(v));
+      // MCP sends max_distance; the CLI flag is --max-distance.
+      const rawMax = args.max_distance ?? args['max-distance'];
+      let maxDistance: number | undefined;
+      if (rawMax !== undefined && rawMax !== null && rawMax !== '') {
+        maxDistance = typeof rawMax === 'number' || typeof rawMax === 'string' ? Number(rawMax) : NaN;
+        if (!Number.isFinite(maxDistance) || maxDistance <= 0) throw new Error('max_distance must be a positive number');
+      }
       const results = await ctx.indexer.search(query, {
         limit,
+        maxDistance,
         folder: opt(args.folder),
         type: opt(args.type),
         status: opt(args.status),

@@ -47,6 +47,22 @@ describe('VaultIndexer.search (hybrid)', () => {
     expect(hits[0].path).toBe('tickets/abcd.md');
   }, 120_000);
 
+  it('maxDistance drops far vector rows but keeps full-text rows', async () => {
+    const all = await indexer.search('search ranking rollout', { limit: 10 });
+    expect(all.length).toBeGreaterThan(1);
+    // Nothing is this close, so only full-text hits survive.
+    const ftsOnly = await indexer.search('ABCD-24680', { limit: 10, maxDistance: 0.0001 });
+    expect(ftsOnly.map((h: any) => h.path)).toEqual(['tickets/abcd.md']);
+    const none = await indexer.search('zzqq unrelated words', { limit: 10, maxDistance: 0.0001 });
+    expect(none).toEqual([]);
+  }, 120_000);
+
+  it('maxDistance keeps vector rows within the bound', async () => {
+    const all = await indexer.search('search ranking rollout', { limit: 10 });
+    const loose = await indexer.search('search ranking rollout', { limit: 10, maxDistance: 100 });
+    expect(loose.map((h: any) => h.path)).toEqual(all.map((h: any) => h.path));
+  }, 120_000);
+
   it('runs full-text search on query-syntax characters without falling back', async () => {
     const errSpy = vi.spyOn(console, 'error');
     try {

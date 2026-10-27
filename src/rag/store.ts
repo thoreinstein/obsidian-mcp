@@ -412,8 +412,9 @@ export class VaultIndexer {
     return indices.some(i => i.indexType === 'FTS' && i.columns.includes('text'));
   }
 
-  public async search(query: string, opts: { limit?: number } & SearchFilters = {}) {
-    const { limit = 5, ...filters } = opts;
+  /** `maxDistance` drops vector hits farther than this `_distance`; full-text hits are never dropped. */
+  public async search(query: string, opts: { limit?: number; maxDistance?: number } & SearchFilters = {}) {
+    const { limit = 5, maxDistance, ...filters } = opts;
     const where = buildWhereClause(filters);
     const table = await this.getTable();
     if (!table) {
@@ -427,7 +428,8 @@ export class VaultIndexer {
     const fetchLimit = limit * 5;
     let vecQuery = table.vectorSearch(vector);
     if (where) vecQuery = vecQuery.where(where);
-    const vec = await vecQuery.limit(fetchLimit).toArray();
+    let vec = await vecQuery.limit(fetchLimit).toArray();
+    if (maxDistance !== undefined) vec = vec.filter((r: any) => r._distance <= maxDistance);
 
     let fts: any[] = [];
     try {

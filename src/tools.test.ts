@@ -109,6 +109,23 @@ describe('runTool', () => {
     expect(out).toContain('File: top.md\nMeta: (root)\nContent: intro');
     expect(out).not.toContain('Relevance');
   });
+
+  it('passes max_distance (MCP) and --max-distance (CLI) to search', async () => {
+    const search = vi.fn(async () => []);
+    ctx.indexer = { search } as any;
+    await runTool('obsidian_rag_query', { query: 'q', max_distance: 1.2 }, ctx);
+    expect(search).toHaveBeenLastCalledWith('q', expect.objectContaining({ maxDistance: 1.2 }));
+    await runTool('obsidian_rag_query', { query: 'q', 'max-distance': '0.9' }, ctx);
+    expect(search).toHaveBeenLastCalledWith('q', expect.objectContaining({ maxDistance: 0.9 }));
+    await runTool('obsidian_rag_query', { query: 'q' }, ctx);
+    expect(search).toHaveBeenLastCalledWith('q', expect.objectContaining({ maxDistance: undefined }));
+  });
+
+  it('rejects a non-positive or non-numeric max_distance', async () => {
+    ctx.indexer = { search: vi.fn(async () => []) } as any;
+    for (const bad of ['abc', -1, 0, true])
+      await expect(runTool('obsidian_rag_query', { query: 'q', max_distance: bad }, ctx)).rejects.toThrow('max_distance must be a positive number');
+  });
 });
 
 describe("obsidian_search_notes", () => {
