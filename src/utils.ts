@@ -21,6 +21,7 @@ export const FRONTMATTER_OPTIONS = {
  * Handles [[Simple]] and [[Link|Alias]] forms.
  */
 export function extractWikilinks(content: string): string[] {
+  if (!content.includes('[[')) return [];
   const regex = /\[\[(.*?)(?:\|.*?)?\]\]/g;
   const links: string[] = [];
   let match;

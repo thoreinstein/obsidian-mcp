@@ -302,6 +302,11 @@ describe('rewriteWikilinks', () => {
 
 describe('wikilinks in code', () => {
   const md = 'real [[A]] and `[[B]]`\n```\n[[C]]\n```\n~~~md\n[[D]] ```\n~~~\nafter [[E]] ``x [[F]]``\n';
+  it('extractWikilinks returns [] for content without links', () => {
+    expect(extractWikilinks('plain text')).toEqual([]);
+    expect(extractWikilinks('a [single] bracket [ here')).toEqual([]);
+  });
+
   it('extractWikilinks skips inline code and fenced blocks', () => {
     expect(extractWikilinks(md)).toEqual(['A', 'E']);
   });
