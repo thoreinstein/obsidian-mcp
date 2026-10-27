@@ -40,12 +40,12 @@ Notable parameters:
 
 ```sh
 git clone https://github.com/thoreinstein/obsidian-mcp
-cd obsidian-mcp && npm install && npm run build
+cd obsidian-mcp && npm install
 ```
 
-Requires Node >= 22.
+`npm install` builds `dist/` through the `prepare` script. Requires Node >= 22. On Linux x64, set `ONNXRUNTIME_NODE_INSTALL=skip` before `npm install`: `onnxruntime-node` 1.30 otherwise downloads a 236 MB CUDA package this server never uses.
 
-The build bundles everything except the native packages `@lancedb/lancedb` and `onnxruntime-node`, which stay external and are the only `dependencies` installed by `npm install`. `onnxruntime-node` is pinned to the exact version `@huggingface/transformers` requires. The bundled packages, `@huggingface/transformers` among them, live in `devDependencies` because they are compiled into `dist/index.js`. Image pipelines are unused, so the build replaces `sharp` with an empty stub and never loads it. `sharp` is still installed, as a transitive dependency of `@huggingface/transformers` (which LanceDB lists as optional), but this server never loads it.
+The build bundles everything except the native packages `@lancedb/lancedb` and `onnxruntime-node`, which stay external and are the only `dependencies` installed by `npm install`. `onnxruntime-node` is pinned to the exact version `@huggingface/transformers` requires. The bundled packages, `@huggingface/transformers` among them, live in `devDependencies` because they are compiled into `dist/index.js`. Image pipelines are unused, so the build replaces `sharp` with an empty stub and never loads it. The `overrides` in this repo's `package.json` apply only when this repo is the installing root. Installed as a dependency or globally, LanceDB's optional `@huggingface/transformers` 3.0.2 still pulls `sharp` 0.33.5 (which has security advisories) and `onnxruntime-node` 1.19.2; this server never loads either. To dedupe in your own project, add `"overrides": { "@huggingface/transformers": "4.3.1" }` to its `package.json`.
 
 ## Configure
 
@@ -111,7 +111,7 @@ The embedding model defaults to `Xenova/all-MiniLM-L6-v2`, pinned to revision `7
 
 The model downloads once (about 23 MB) into the model cache on first use. Once the cache holds the model, it loads from there without the network. Set `OBSIDIAN_MCP_OFFLINE=1` to forbid the first download too: with an incomplete cache, loading then fails with an error naming the cache directory.
 
-The index meta records the embedder that built it (`transformers@4/<model>@<revision>/q8`). An index built by another embedder, including every index built before the move to `@huggingface/transformers` 4, is rebuilt in full by the next `obsidian_rag_index` (the server's startup index does this). Until then, queries log a warning that results may be degraded, and single-note reindexing is refused.
+The index meta records the embedder that built it (`transformers@4/<model>@<revision>/q8`). An index built by another embedder, including every index built before the move to `@huggingface/transformers` 4, is rebuilt in full by the next `obsidian_rag_index` (the server's startup index does this). The first start after upgrading from an older embedder therefore runs a full rebuild: about 5 minutes at full CPU for a 3,000-note vault on an Apple M-series machine. Until it finishes, queries log a warning and search returns partial results, and single-note reindexing is refused. `node dist/index.js obsidian_rag_index --force_reindex` runs the rebuild on demand.
 
 Embedding batches hold at most `OBSIDIAN_RAG_EMBED_BATCH_SIZE` chunks (default 48) and `OBSIDIAN_RAG_EMBED_BATCH_CHARS` characters (default 6000); the character cap bounds peak memory on long chunks.
 
@@ -124,3 +124,5 @@ The MCP server runs an incremental index in the background when it starts, so no
 ```sh
 npm run type-check && npm test && npm run build
 ```
+
+Tests need the network once, to download the embedding model. Set `OBSIDIAN_MCP_OFFLINE=1` to skip the two tests that need it.
