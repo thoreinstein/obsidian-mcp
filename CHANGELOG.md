@@ -12,7 +12,6 @@
 - `obsidian_get_note_outline` returns frontmatter dates as written instead of as timestamps.
 - `obsidian_read_note` caps output at 100,000 characters by default (`max_chars`, `0` = no cap).
 - The first run after upgrading rebuilds the index, because the embedder changed (about 5 minutes for 3,000 notes on an Apple M-series machine).
-- `validate_frontmatter` is no longer an MCP tool; it is the CLI hook `validate_frontmatter --hook`.
 
 ### Security
 
@@ -25,6 +24,7 @@
 
 ### Fixed
 
+- Docs: `validate_frontmatter` was never an MCP tool (the README mis-listed it); it is the CLI hook `validate_frontmatter --hook`.
 - Writes are atomic (temp file and rename), refuse stale edits, write through symlinks and keep the note's mode; `obsidian_move_note` applies the write policy to notes it rewrites and reports ones it skipped.
 - Daily notes are created exclusively, so a note Obsidian creates at the same moment is kept.
 - The index is crash-safe and bound to one vault; emptied or deleted notes leave the index; LanceDB commit conflicts are retried.

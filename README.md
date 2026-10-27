@@ -80,7 +80,7 @@ The RAG index belongs to one vault: the first vault that indexes it. Indexing an
 The server reads these optional files from the vault; nothing vault-specific is hard-coded.
 
 - Write tools only create or edit `.md`, `.base` and `.canvas` files and refuse any path with a segment starting with `.` (e.g. `.obsidian/`)
-- Dot-directories (`.obsidian/`, `.git/`, `.trash/`) are never indexed, searched, listed or link-checked
+- Dot-directories (`.obsidian/`, `.git/`, `.trash/`) are never indexed, searched, listed or link-checked by vault-wide scans, unless a dot-directory is named explicitly as `subfolder`/`folder`
 - The daily note tools (`obsidian_get_daily_note`, `obsidian_append_daily_log`) are exempt from `readonly` and from frontmatter validation
 - `.obsidian/daily-notes.json`: `folder` and `format` decide where the daily note lives
 - `AGENTS.md`: appended to the server instructions (truncated if long) and served in full as the `obsidian://vault-guide` resource
@@ -103,7 +103,7 @@ The server reads these optional files from the vault; nothing vault-specific is 
 Two CLI modes read a Claude Code hook payload (JSON with `tool_input.file_path`, and `content` for a Write) on stdin. Both resolve `file_path` (absolute or vault-relative) against the vault and ignore anything that is not a `.md` note inside it.
 
 - `validate_frontmatter --hook`: checks the written `content` against `.obsidian-mcp-schema.json`. Exit 2 with `[obsidian-mcp] Blocked: "<path>" has invalid frontmatter: ...` on stderr when it breaks a rule, which makes Claude Code block the write. Exit 0 for everything else: valid content, no schema or an unreadable one, empty or invalid stdin, no `content` (an Edit carries none, so only Writes are checked), a path outside the vault. Paths under the schema's `exclude` prefixes pass.
-- `obsidian_rag_index --hook`: reindexes the one note named by `file_path`. Exit 0 on success and on every no-op (empty or invalid stdin, no `file_path`, no vault, a non-note path). Exit 1 with the error on stderr if indexing fails, which Claude Code treats as a non-blocking error.
+- `obsidian_rag_index --hook`: reindexes the one note named by `file_path`. Exit 0 on success and on every no-op (empty or invalid stdin, no `file_path`, no vault, a non-note path). When indexing is refused or fails it prints `{"success":false,"message":...}` on stdout and still exits 0, so the hook never blocks or reports an error to Claude Code; see stderr or `OBSIDIAN_MCP_LOG=debug` for why.
 
 ```json
 {
@@ -112,13 +112,13 @@ Two CLI modes read a Claude Code hook payload (JSON with `tool_input.file_path`,
       { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "node /path/to/obsidian-mcp/dist/index.js validate_frontmatter --hook" }] }
     ],
     "PostToolUse": [
-      { "matcher": "Write|Edit", "hooks": [{ "type": "command", "command": "node /path/to/obsidian-mcp/dist/index.js obsidian_rag_index --hook" }] }
+      { "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "node /path/to/obsidian-mcp/dist/index.js obsidian_rag_index --hook" }] }
     ]
   }
 }
 ```
 
-The vault comes from `tool_input.vault_path` if present, else the configured default vault.
+The vault comes from `tool_input.vault_path` if present (the `obsidian_rag_index` hook also honors `--vault_path`), else the configured default vault.
 
 ## Data paths
 
