@@ -147,3 +147,28 @@ describe('single-note write path', () => {
     expect((await table.listVersions()).length - before).toBeLessThanOrEqual(2);
   }, 120_000);
 });
+
+describe('delete crash safety', () => {
+  it('an interrupted delete of removed notes is retried next run', async () => {
+    await fs.writeFile(path.join(vaultA, 'b.md'), '# Beta\nThe beta note now carries GONETOKEN-1 in a sentence about gone things.\n');
+    expect((await indexer.indexVault(vaultA)).success).toBe(true);
+    expect((await indexer.search('GONETOKEN-1'))[0].path).toBe('b.md');
+
+    await fs.rm(path.join(vaultA, 'b.md'));
+    const table = await (indexer as any).getTable();
+    const proto = Object.getPrototypeOf(table);
+    const spy = vi.spyOn(proto, 'delete').mockImplementationOnce(async () => { throw new Error('simulated delete crash'); });
+    try {
+      await expect(indexer.indexVault(vaultA)).rejects.toThrow('simulated delete crash');
+    } finally {
+      spy.mockRestore();
+    }
+
+    const res = await indexer.indexVault(vaultA);
+    expect(res.success).toBe(true);
+    const after = await (indexer as any).getTable();
+    expect(await after.query().where(`path = 'b.md'`).toArray()).toHaveLength(0);
+    const hits = await indexer.search('GONETOKEN-1');
+    expect(hits.map((h: any) => h.path)).not.toContain('b.md');
+  }, 120_000);
+});

@@ -364,8 +364,9 @@ export class VaultIndexer {
     if (canIncremental) {
       this.table = await db.openTable('notes');
       const pathsToDelete = [...changedPaths, ...deletedPaths];
-      // Drop hashes of paths about to change first: a crash leaves them unhashed, so the next run redoes them.
-      const dropped = new Set(pathsToDelete);
+      // Drop hashes of changed paths first: a crash leaves them unhashed, so the next run redoes them.
+      // Deleted paths stay hashed until their rows are gone, so a crash mid-delete is retried.
+      const dropped = new Set(changedPaths);
       await this.writeHashes(Object.fromEntries(Object.entries(previousHashes).filter(([p]) => !dropped.has(p))));
       if (pathsToDelete.length > 0) {
         const DELETE_BATCH = 100;
