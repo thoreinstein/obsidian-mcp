@@ -176,32 +176,30 @@ export class VaultIndexer {
           return { success: true, chunks: 0, message: 'No content to index; removed existing chunks.' };
       }
 
-      {
-          const chunks = await this.embedWithFallback(embedder, textsToEmbed, chunkMetadata);
-          if (chunks.length === 0) {
-              return { success: false, message: `Failed to embed content for ${relativePath}.` };
-          }
-          const chunkRows = chunks as unknown as Record<string, unknown>[];
-
-          const db = await this.getDb();
-          const tableNames = await db.tableNames();
-          if (!tableNames.includes('notes')) {
-              this.table = await db.createTable('notes', chunkRows);
-          } else {
-              const table = this.table = await db.openTable('notes');
-              // Delete old chunks for this file
-              await withCommitRetry(() => table.delete(`path = '${relativePath.replace(/'/g, "''")}'`));
-              await withCommitRetry(() => table.add(chunkRows));
-          }
-          await this.countWrite();
-          if (!this.ftsReady) {
-              if (!(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
-              this.ftsReady = true;
-          }
-          await this.setHash(relativePath, md5(content));
-          console.error(`Indexed ${chunks.length} chunks for ${relativePath}.`);
-          return { success: true, chunks: chunks.length };
+      const chunks = await this.embedWithFallback(embedder, textsToEmbed, chunkMetadata);
+      if (chunks.length === 0) {
+          return { success: false, message: `Failed to embed content for ${relativePath}.` };
       }
+      const chunkRows = chunks as unknown as Record<string, unknown>[];
+
+      const db = await this.getDb();
+      const tableNames = await db.tableNames();
+      if (!tableNames.includes('notes')) {
+          this.table = await db.createTable('notes', chunkRows);
+      } else {
+          const table = this.table = await db.openTable('notes');
+          // Delete old chunks for this file
+          await withCommitRetry(() => table.delete(`path = '${relativePath.replace(/'/g, "''")}'`));
+          await withCommitRetry(() => table.add(chunkRows));
+      }
+      await this.countWrite();
+      if (!this.ftsReady) {
+          if (!(await this.hasFtsIndex(this.table))) await this.ensureFtsIndex(this.table);
+          this.ftsReady = true;
+      }
+      await this.setHash(relativePath, md5(content));
+      console.error(`Indexed ${chunks.length} chunks for ${relativePath}.`);
+      return { success: true, chunks: chunks.length };
     } catch (err) {
       console.error(`Failed to index file ${filePath}:`, err);
       return { success: false, message: String(err) };
@@ -395,7 +393,9 @@ export class VaultIndexer {
       const sortedTexts = sortedIndices.map(i => allTexts[i]);
       const sortedMeta = sortedIndices.map(i => allMeta[i]);
 
+      const batches = planBatches(sortedTexts.map(t => t.length), batchSize, batchChars);
       let chunksEmbedded = 0;
+      let batchesDone = 0;
 
       const renderEmbedProgress = () => {
         const total = sortedTexts.length;
@@ -411,7 +411,7 @@ export class VaultIndexer {
           if (chunksEmbedded === total) process.stderr.write('\n');
           return;
         }
-        if (chunksEmbedded % (batchSize * 5) === 0 || chunksEmbedded === total) {
+        if (batchesDone % 5 === 0 || batchesDone === batches.length) {
           console.error(`Embedding progress: ${chunksEmbedded}/${total} chunks`);
         }
       };
@@ -444,7 +444,7 @@ export class VaultIndexer {
       let batchesSinceWrite = 0;
       let pendingWrite: Promise<void> | null = null;
 
-      for (const [start, end] of planBatches(sortedTexts.map(t => t.length), batchSize, batchChars)) {
+      for (const [start, end] of batches) {
         const batchTexts = sortedTexts.slice(start, end);
         const batchMeta = sortedMeta.slice(start, end);
 
@@ -452,6 +452,7 @@ export class VaultIndexer {
         pendingChunks.push(...embeddedChunks);
         batchesSinceWrite++;
         chunksEmbedded += batchTexts.length;
+        batchesDone++;
         renderEmbedProgress();
 
         if (batchesSinceWrite >= WRITE_ACCUMULATE) {
