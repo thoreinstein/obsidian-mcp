@@ -651,7 +651,7 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
       // A bare [[name]] only points at this note when no other note shares the name.
       const unique = allFiles.filter(f => path.basename(f, '.md').toLowerCase() === from.name.toLowerCase()).length === 1;
       const readonly = (await loadVaultSchema(vp))?.readonly ?? [];
-      const updated: string[] = [], skipped: string[] = [];
+      const updated: string[] = [], skipped: string[] = [], stale: string[] = [];
       const scanFiles = await glob('**/*.md', { cwd: vp });
       const contents = await readNotes(vp, scanFiles);
       for (const [i, f] of scanFiles.entries()) {
@@ -664,14 +664,21 @@ export async function runTool(name: string, args: Record<string, unknown>, ctx: 
         if (await isReadonlyPath(vp, abs, readonly)) { skipped.push(rel); continue; }
         // Re-read just before writing; skip a note that changed since the scan rather than clobber it.
         const fresh = await readForEdit(abs).catch(() => null);
-        if (!fresh || fresh.content !== content) continue;
-        await writeAtomic(abs, next, { expectedMtimeMs: fresh.mtimeMs, displayPath: rel });
+        if (!fresh || fresh.content !== content) { stale.push(rel); continue; }
+        try {
+          await writeAtomic(abs, next, { expectedMtimeMs: fresh.mtimeMs, displayPath: rel });
+        } catch (e) {
+          if (!(e instanceof Error) || !e.message.startsWith('Note changed on disk since it was read')) throw e;
+          stale.push(rel);
+          continue;
+        }
         ctx.reindex(vp, rel);
         updated.push(rel);
       }
       const notes = (n: number, kind = '') => `${n} ${kind}${n === 1 ? 'note' : 'notes'}`;
       let out = `${moved}; updated links in ${notes(updated.length)}`;
       if (skipped.length) out += `; left links in ${notes(skipped.length, 'read-only ')} unchanged: ${skipped.join(', ')}`;
+      if (stale.length) out += `; skipped ${stale.length} changed note(s): ${stale.join(', ')}`;
       return out;
     }
     case 'obsidian_update_frontmatter': {

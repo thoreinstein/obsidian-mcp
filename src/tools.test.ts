@@ -3,7 +3,13 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import matter from 'gray-matter';
+import * as noteWrite from './note-write.js';
 import { runTool, readNotes, TOOL_DEFINITIONS, UnknownToolError, type ToolContext } from './tools.js';
+
+vi.mock('./note-write.js', async (orig) => {
+  const actual = await orig<typeof import('./note-write.js')>();
+  return { ...actual, readForEdit: vi.fn(actual.readForEdit) };
+});
 
 let vp: string;
 let ctx: ToolContext;
@@ -28,6 +34,24 @@ afterEach(async () => {
 });
 
 describe('runTool', () => {
+  it("move_note reports notes it could not update", async () => {
+    await fs.writeFile(path.join(vp, "l1.md"), "see [[a]]");
+    await fs.writeFile(path.join(vp, "l2.md"), "see [[a]]");
+    const actual = await vi.importActual<typeof import('./note-write.js')>('./note-write.js');
+    vi.mocked(noteWrite.readForEdit).mockImplementation(async (abs: string) => {
+      const r = await actual.readForEdit(abs);
+      return abs.endsWith("l1.md") ? { ...r, content: r.content + " changed" } : r;
+    });
+    try {
+      const out = await runTool("obsidian_move_note", { source_path: "a.md", dest_path: "z.md" }, ctx);
+      expect(out).toContain("skipped 1 changed note(s): l1.md");
+      expect(await fs.readFile(path.join(vp, "l2.md"), "utf-8")).toBe("see [[z]]");
+      expect(await fs.readFile(path.join(vp, "l1.md"), "utf-8")).toBe("see [[a]]");
+      await fs.access(path.join(vp, "z.md"));
+    } finally {
+      vi.mocked(noteWrite.readForEdit).mockImplementation(actual.readForEdit);
+    }
+  });
   it("edit tools still edit and leave no temp files", async () => {
     await fs.writeFile(path.join(vp, "e.md"), "# T\n## S\nbody\n");
     await runTool("obsidian_replace_section", { file_path: "e.md", heading: "S", content: "new body" }, ctx);

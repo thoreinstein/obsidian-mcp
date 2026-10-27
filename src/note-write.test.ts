@@ -36,4 +36,15 @@ describe('writeAtomic', () => {
     await expect(writeAtomic(abs, 'new', { displayPath: 'x.md' })).rejects.toThrow();
     expect((await fs.readdir(dir)).filter(f => f.includes('.tmp-'))).toEqual([]);
   });
+
+  it('writes through a symlink', async () => {
+    const real = path.join(dir, 'real.md'), link = path.join(dir, 'link.md');
+    await fs.writeFile(real, 'old');
+    await fs.symlink(real, link);
+    const { mtimeMs } = await readForEdit(link);
+    await writeAtomic(link, 'new', { expectedMtimeMs: mtimeMs, displayPath: 'link.md' });
+    expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
+    expect(await fs.readFile(real, 'utf-8')).toBe('new');
+    expect((await fs.readdir(dir)).filter(f => f.includes('.tmp-'))).toEqual([]);
+  });
 });
