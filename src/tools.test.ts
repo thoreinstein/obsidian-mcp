@@ -285,6 +285,14 @@ describe('obsidian_get_related', () => {
   });
 });
 
+describe('obsidian_get_links', () => {
+  it('returns the wikilinks of a note and ignores links in code', async () => {
+    await fs.writeFile(path.join(vp, 'a.md'), 'see [[b]] and [[c#H|alias]]\n`[[inline]]`\n```\n[[fenced]]\n```\n');
+    const out = JSON.parse(await runTool('obsidian_get_links', { file_path: 'a.md' }, ctx));
+    expect(out).toEqual(['b', 'c#H']);
+  });
+});
+
 describe('obsidian_get_related with duplicate names', () => {
   it('lists only notes that resolve to the note as backlinks', async () => {
     await fs.mkdir(path.join(vp, 'a'));

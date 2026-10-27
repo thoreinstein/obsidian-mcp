@@ -46,6 +46,7 @@ describe('runCli', () => {
   it('returns null for an unknown first arg', async () => {
     expect(await run(['serve'])).toBeNull();
     expect(await run([])).toBeNull();
+    expect(ctx.allowForceReindex).toBeUndefined();
   });
 
   it('prints a tool result and returns 0', async () => {
@@ -55,15 +56,24 @@ describe('runCli', () => {
   });
 
   it('prints a tool error to err and returns 1', async () => {
-    expect(await run(['obsidian_read_note', '--path', 'Notes/missing.md'])).toBe(1);
+    expect(await run(['obsidian_read_note', '--file_path', 'Notes/missing.md'])).toBe(1);
     expect(err.length).toBe(1);
+    expect(err[0]).toContain('missing.md');
     expect(out).toEqual([]);
   });
 
   it('applies one-shot ctx overrides', async () => {
+    const original = ctx.reindex;
     await run(['obsidian_list_notes']);
     expect(ctx.allowForceReindex).toBe(true);
     ctx.reindex('v', 'r');
+    expect(original).not.toHaveBeenCalled();
+  });
+
+  it('validate_frontmatter without --hook is a no-op returning 0', async () => {
+    expect(await run(['validate_frontmatter'])).toBe(0);
+    expect(out).toEqual([]);
+    expect(err).toEqual([]);
   });
 
   describe('validate_frontmatter --hook', () => {
